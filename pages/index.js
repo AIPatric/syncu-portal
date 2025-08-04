@@ -6,15 +6,27 @@ export default function Home() {
   const router = useRouter()
 
   return (
-    <main style={{ textAlign: 'center', padding: '4rem' }}>
-      <Image src="/logo_syncu.svg" alt="Syncu Logo" width={150} height={50} />
-      <h1>Willkommen bei Syncu</h1>
-      <button
-        style={{ marginTop: '2rem', padding: '1rem 2rem', fontSize: '1.2rem' }}
-        onClick={() => router.push('/login')}
-      >
-        Zum Login
-      </button>
-    </main>
+    <div className="min-h-screen bg-[#f2f2f2] flex items-center justify-center px-4 py-8">
+      <div className="bg-white rounded-2xl shadow-lg p-8 md:p-12 lg:p-16 max-w-2xl w-full text-center">
+        {/* Logo */}
+        <div className="flex justify-center mb-8">
+          <Image src="/logo_syncu.png" alt="Syncu Logo" width={180} height={60} />
+        </div>
+
+        {/* Headline */}
+        <h1 className="text-4xl font-bold text-gray-900 mb-4">Willkommen bei Syncu</h1>
+        <p className="text-lg text-gray-600 mb-8">
+          Ihre intelligente Lösung für automatisierte Unternehmensprozesse.
+        </p>
+
+        {/* CTA Button */}
+        <button
+          onClick={() => router.push('/login')}
+          className="bg-[#2d9cdb] hover:bg-[#5cb682] text-white font-medium py-3 px-6 rounded-full transition-all duration-300 shadow-md hover:shadow-lg"
+        >
+          Zum Login
+        </button>
+      </div>
+    </div>
   )
 }
