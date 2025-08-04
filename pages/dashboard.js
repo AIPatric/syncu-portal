@@ -1,37 +1,30 @@
+// pages/dashboard.js
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabaseClient'
+import { useRouter } from 'next/router'
+import Image from 'next/image'
 
 export default function Dashboard() {
   const [user, setUser] = useState(null)
   const router = useRouter()
 
   useEffect(() => {
-    const session = supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) {
+    supabase.auth.getUser().then(({ data: { user }, error }) => {
+      if (!user) {
         router.push('/login')
       } else {
-        setUser(session.user)
+        setUser(user)
       }
     })
-  }, [router])
+  }, [])
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut()
-    router.push('/login')
-  }
+  if (!user) return null
 
   return (
-    <main style={{ padding: '2rem' }}>
-      <h1>Dashboard</h1>
-      {user ? (
-        <>
-          <p>Willkommen, {user.email}</p>
-          <button onClick={handleLogout}>Abmelden</button>
-        </>
-      ) : (
-        <p>Lade Benutzerdaten...</p>
-      )}
+    <main style={{ textAlign: 'center', padding: '4rem' }}>
+      <Image src="/logo_mikaeli.svg" alt="Mikaeli Logo" width={150} height={50} />
+      <h1>Willkommen, {user.email}</h1>
+      <p>Dies ist dein Dashboard für Mikaeli.</p>
     </main>
   )
 }
