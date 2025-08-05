@@ -12,6 +12,8 @@ export const config = {
 };
 
 export default async function handler(req, res) {
+  console.log('[API] Upload endpoint aufgerufen');
+
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
     return res.status(405).json({ error: 'Method Not Allowed' });
@@ -32,32 +34,35 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Vorname, Nachname und Rolle sind Pflichtfelder.' });
     }
 
-    const fileList = Array.isArray(files.file) ? files.file : (files.file ? [files.file] : []);
+    const fileList = Array.isArray(files.file)
+      ? files.file
+      : files.file
+      ? [files.file]
+      : [];
+
     if (fileList.length === 0) {
-      return res.status(400).json({ error: 'Es wurden keine Dateien zum Hochladen bereitgestellt.' });
+      return res.status(400).json({ error: 'Es wurden keine Dateien hochgeladen.' });
     }
 
-    // 1. Finde rolle_id basierend auf dem übergebenen Rollennamen
-    // WICHTIGE ÄNDERUNG: .maybeSingle() statt .single() verwenden und manuell prüfen
+    // Rolle suchen
     const { data: rolleData, error: rolleError } = await supabaseAdmin
       .from('rollen')
       .select('id')
       .eq('rolle', rolleName)
-      .maybeSingle(); // Erlaubt, dass keine Zeile gefunden wird, ohne einen Fehler zu werfen.
+      .maybeSingle();
 
-    // Explizite Fehlerprüfung: Gab es einen DB-Fehler ODER wurde die Rolle einfach nicht gefunden?
     if (rolleError) {
-      console.error('Datenbankfehler bei der Rollensuche:', rolleError);
-      return res.status(500).json({ error: 'Datenbankfehler bei der Rollensuche.' });
+      console.error('[API] Fehler beim Laden der Rolle:', rolleError);
+      return res.status(500).json({ error: 'Fehler beim Abrufen der Rolle.' });
     }
+
     if (!rolleData) {
-      console.error(`Rolle nicht gefunden: Der Eintrag '${rolleName}' existiert nicht in der Tabelle 'rollen'.`);
-      // Gib eine klare Fehlermeldung an den Client zurück
-      return res.status(400).json({ error: `Rolle '${rolleName}' ist ungültig. Bitte überprüfen Sie die Datenbankeinträge.` });
+      return res.status(400).json({ error: `Rolle '${rolleName}' existiert nicht.` });
     }
+
     const rolle_id = rolleData.id;
 
-    // 2. Erstelle den Kunden und erhalte seine ID
+    // Kunde anlegen
     const { data: kundeData, error: kundeError } = await supabaseAdmin
       .from('kunden')
       .insert({ name: `${vorname} ${nachname}`, rolle_id })
@@ -65,34 +70,40 @@ export default async function handler(req, res) {
       .single();
 
     if (kundeError) {
-      console.error('Fehler beim Einfügen des Kunden:', kundeError);
-      return res.status(500).json({ error: 'Der Kunde konnte nicht in der Datenbank angelegt werden.' });
+      console.error('[API] Fehler beim Anlegen des Kunden:', kundeError);
+      return res.status(500).json({ error: 'Kunde konnte nicht angelegt werden.' });
     }
+
     const kunde_id = kundeData.id;
 
-    // 3. Verarbeite alle Datei-Uploads parallel
+    // Dateien hochladen
     const uploadPromises = fileList.map(async (file) => {
       const fileData = await fs.readFile(file.filepath);
       const fileExt = file.originalFilename.split('.').pop();
       const fileName = `${uuidv4()}.${fileExt}`;
       const storagePath = `${kunde_id}/${fileName}`;
 
-      const { error: storageError } = await supabaseAdmin.storage
+      const { error: uploadError } = await supabaseAdmin.storage
         .from('upload')
-        .upload(storagePath, fileData, { contentType: file.mimetype });
+        .upload(storagePath, fileData, {
+          contentType: file.mimetype,
+        });
 
-      await fs.unlink(file.filepath);
+      // Tempfile löschen
+      await fs.unlink(file.filepath).catch(() => null);
 
-      if (storageError) {
-        throw new Error(`Fehler beim Upload von ${file.originalFilename}: ${storageError.message}`);
+      if (uploadError) {
+        throw new Error(`Fehler beim Upload von ${file.originalFilename}: ${uploadError.message}`);
       }
 
-      const { data: urlData } = supabaseAdmin.storage.from('upload').getPublicUrl(storagePath);
+      const { data: urlData } = supabaseAdmin.storage
+        .from('upload')
+        .getPublicUrl(storagePath);
 
       return {
         kunde_id,
         rolle_id,
-        file_url: urlData.publicUrl,
+        file_url: urlData?.publicUrl || '',
         original_name: file.originalFilename,
         status: 'pending',
       };
@@ -100,18 +111,29 @@ export default async function handler(req, res) {
 
     const queueInserts = await Promise.all(uploadPromises);
 
-    // 4. Trage alle verarbeiteten Dateien gesammelt in die upload_queue ein
-    const { error: queueError } = await supabaseAdmin.from('upload_queue').insert(queueInserts);
+    const { error: insertError } = await supabaseAdmin
+      .from('upload_queue')
+      .insert(queueInserts);
 
-    if (queueError) {
-      console.error('Fehler beim Eintragen in die Upload-Queue:', queueError);
-      return res.status(500).json({ error: 'Die Dateien konnten nicht in die Verarbeitungswarteschlange eingetragen werden.' });
+    if (insertError) {
+      console.error('[API] Fehler beim Eintragen in upload_queue:', insertError);
+      return res.status(500).json({ error: 'Upload erfolgreich, aber Queue-Eintrag fehlgeschlagen.' });
     }
 
-    return res.status(200).json({ success: true, message: `${fileList.length} Datei(en) erfolgreich hochgeladen und zur Verarbeitung vorgemerkt.` });
-
+    return res.status(200).json({
+      success: true,
+      message: `${fileList.length} Datei(en) erfolgreich hochgeladen.`,
+    });
   } catch (error) {
-    console.error('Unerwarteter Serverfehler:', error);
-    return res.status(500).json({ error: error.message || 'Ein interner Serverfehler ist aufgetreten.' });
+    console.error('[API] Unerwarteter Fehler:', error);
+
+    if (!res.headersSent) {
+      return res.status(500).json({
+        error: 'Ein interner Fehler ist aufgetreten. Bitte erneut versuchen.',
+      });
+    }
+
+    // Falls schon gesendet, abbrechen
+    return;
   }
 }
