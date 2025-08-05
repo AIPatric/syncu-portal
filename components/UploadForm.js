@@ -1,3 +1,4 @@
+console.log("Initial übergebene rolleName:", initialRolleName);
 const handleUpload = async () => {
   if (!vorname.trim() || !nachname.trim()) {
     return setError('Bitte geben Sie Vor- und Nachnamen an.');
