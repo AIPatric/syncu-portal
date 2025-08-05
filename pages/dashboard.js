@@ -22,8 +22,8 @@ export default function Dashboard() {
     } else if (type === 'bonitaet' && sub) {
       if (sub === 'angestellter') {
         return 'Käufer (angestellt)';
-      } else if (sub === 'selbstständig') { // <-- HIER KORRIGIERT: 'selbstständig' statt 'selbstaendiger'
-        return 'Käufer (selbstständig)'; // <-- Exakter Wert aus der Datenbank
+      } else if (sub === 'selbstaendiger') {
+        return 'Käufer (selbstständig)';
       }
     }
     return ''; // Standardwert, falls keine Rolle zutrifft
@@ -144,19 +144,19 @@ export default function Dashboard() {
                   <p className="font-semibold text-[#111]">Angestellter</p>
                 </div>
                 <p className="text-sm text-gray-600">
-                  Festes Anstellungsverhältnis (z. B. Gehaltsabrechnung)
+                  Festes Anstellungsverhältnis (z. B. Gehaltsabrechnung)
                 </p>
               </div>
               <div
                 className="border rounded-md p-4 hover:shadow cursor-pointer"
-                onClick={() => setSubType('selbstständig')} // <-- HIER KORRIGIERT: 'selbstständig' statt 'selbstaendiger'
+                onClick={() => setSubType('selbstaendiger')}
               >
                 <div className="flex items-center space-x-2 mb-1">
                   <FaUserCheck className="text-green-600" />
                   <p className="font-semibold text-[#111]">Selbständiger</p>
                 </div>
                 <p className="text-sm text-gray-600">
-                  Freiberuflich oder gewerblich tätig (z. B. BWA, EÜR)
+                  Freiberuflich oder gewerblich tätig (z. B. BWA, EÜR)
                 </p>
               </div>
             </div>
@@ -192,9 +192,11 @@ export default function Dashboard() {
         {activeTab === 'history' && (
           <div className="bg-white p-6 rounded-lg text-center text-gray-600">
             <p>Bisher wurden keine Prüfungen durchgeführt.</p>
-          }
+          </div>
         )}
       </div>
     </div>
   )
 }
+
+
