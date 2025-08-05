@@ -1,5 +1,3 @@
-// /pages/api/upload.js
-
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { IncomingForm } from 'formidable';
 import fs from 'fs/promises';
@@ -37,27 +35,21 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Es wurden keine Dateien zum Hochladen bereitgestellt.' });
     }
 
-    // 1. Finde rolle_id basierend auf dem übergebenen Rollennamen
-    // WICHTIGE ÄNDERUNG: .maybeSingle() statt .single() verwenden und manuell prüfen
     const { data: rolleData, error: rolleError } = await supabaseAdmin
       .from('rollen')
       .select('id')
       .eq('rolle', rolleName)
-      .maybeSingle(); // Erlaubt, dass keine Zeile gefunden wird, ohne einen Fehler zu werfen.
+      .maybeSingle();
 
-    // Explizite Fehlerprüfung: Gab es einen DB-Fehler ODER wurde die Rolle einfach nicht gefunden?
     if (rolleError) {
       console.error('Datenbankfehler bei der Rollensuche:', rolleError);
       return res.status(500).json({ error: 'Datenbankfehler bei der Rollensuche.' });
     }
     if (!rolleData) {
-      console.error(`Rolle nicht gefunden: Der Eintrag '${rolleName}' existiert nicht in der Tabelle 'rollen'.`);
-      // Gib eine klare Fehlermeldung an den Client zurück
-      return res.status(400).json({ error: `Rolle '${rolleName}' ist ungültig. Bitte überprüfen Sie die Datenbankeinträge.` });
+      return res.status(400).json({ error: `Rolle '${rolleName}' ist ungültig.` });
     }
     const rolle_id = rolleData.id;
 
-    // 2. Erstelle den Kunden und erhalte seine ID
     const { data: kundeData, error: kundeError } = await supabaseAdmin
       .from('kunden')
       .insert({ name: `${vorname} ${nachname}`, rolle_id })
@@ -66,52 +58,71 @@ export default async function handler(req, res) {
 
     if (kundeError) {
       console.error('Fehler beim Einfügen des Kunden:', kundeError);
-      return res.status(500).json({ error: 'Der Kunde konnte nicht in der Datenbank angelegt werden.' });
+      return res.status(500).json({ error: 'Kunde konnte nicht angelegt werden.' });
     }
     const kunde_id = kundeData.id;
 
-    // 3. Verarbeite alle Datei-Uploads parallel
-    const uploadPromises = fileList.map(async (file) => {
-      const fileData = await fs.readFile(file.filepath);
-      const fileExt = file.originalFilename.split('.').pop();
-      const fileName = `${uuidv4()}.${fileExt}`;
-      const storagePath = `${kunde_id}/${fileName}`;
+    const uploadResults = await Promise.all(
+      fileList.map(async (file) => {
+        try {
+          const fileData = await fs.readFile(file.filepath);
+          const fileExt = file.originalFilename.split('.').pop();
+          const fileName = `${uuidv4()}.${fileExt}`;
+          const storagePath = `${kunde_id}/${fileName}`;
 
-      const { error: storageError } = await supabaseAdmin.storage
-        .from('upload')
-        .upload(storagePath, fileData, { contentType: file.mimetype });
+          const { error: storageError } = await supabaseAdmin.storage
+            .from('upload')
+            .upload(storagePath, fileData, { contentType: file.mimetype });
 
-      await fs.unlink(file.filepath);
+          await fs.unlink(file.filepath);
 
-      if (storageError) {
-        throw new Error(`Fehler beim Upload von ${file.originalFilename}: ${storageError.message}`);
+          if (storageError) {
+            console.error(`Fehler beim Upload von ${file.originalFilename}:`, storageError);
+            throw new Error(`Fehler beim Upload von ${file.originalFilename}`);
+          }
+
+          const { data: urlData } = supabaseAdmin.storage
+            .from('upload')
+            .getPublicUrl(storagePath);
+
+          return {
+            success: true,
+            data: {
+              kunde_id,
+              rolle_id,
+              file_url: urlData.publicUrl,
+              original_name: file.originalFilename,
+              status: 'pending',
+            }
+          };
+        } catch (error) {
+          console.error('Upload-Fehler:', error.message);
+          return { success: false, error: error.message };
+        }
+      })
+    );
+
+    const validUploads = uploadResults.filter(result => result.success).map(r => r.data);
+
+    if (validUploads.length > 0) {
+      const { error: queueError } = await supabaseAdmin.from('upload_queue').insert(validUploads);
+      if (queueError) {
+        console.error('Fehler bei insert upload_queue:', queueError);
+        return res.status(500).json({ error: 'Upload-Queue konnte nicht aktualisiert werden.' });
       }
-
-      const { data: urlData } = supabaseAdmin.storage.from('upload').getPublicUrl(storagePath);
-
-      return {
-        kunde_id,
-        rolle_id,
-        file_url: urlData.publicUrl,
-        original_name: file.originalFilename,
-        status: 'pending',
-      };
-    });
-
-    const queueInserts = await Promise.all(uploadPromises);
-
-    // 4. Trage alle verarbeiteten Dateien gesammelt in die upload_queue ein
-    const { error: queueError } = await supabaseAdmin.from('upload_queue').insert(queueInserts);
-
-    if (queueError) {
-      console.error('Fehler beim Eintragen in die Upload-Queue:', queueError);
-      return res.status(500).json({ error: 'Die Dateien konnten nicht in die Verarbeitungswarteschlange eingetragen werden.' });
     }
 
-    return res.status(200).json({ success: true, message: `${fileList.length} Datei(en) erfolgreich hochgeladen und zur Verarbeitung vorgemerkt.` });
+    const failed = uploadResults.filter(r => !r.success);
+    const response = {
+      success: true,
+      message: `${validUploads.length} Datei(en) erfolgreich hochgeladen.`,
+      fehler: failed.map(f => f.error),
+    };
+
+    return res.status(200).json(response);
 
   } catch (error) {
     console.error('Unerwarteter Serverfehler:', error);
-    return res.status(500).json({ error: error.message || 'Ein interner Serverfehler ist aufgetreten.' });
+    return res.status(500).json({ error: error.message || 'Ein Serverfehler ist aufgetreten.' });
   }
 }
