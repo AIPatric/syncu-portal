@@ -1,13 +1,14 @@
-// /components/UploadForm.js - Verbesserte Fehlerbehandlung
+// /components/UploadForm.js
 
 import { useState } from 'react';
 import { FaCloudUploadAlt } from 'react-icons/fa';
 import { FiX } from 'react-icons/fi';
 
-export default function UploadForm({ mode, rolleName: initialRolleName }) {
+export default function UploadForm({ mode, rolleName: initialRolleName }) { // rolleName als Prop empfangen
   const [files, setFiles] = useState([]);
   const [vorname, setVorname] = useState('');
   const [nachname, setNachname] = useState('');
+  // Die Rolle wird jetzt als Prop übergeben, daher kein eigener State mehr dafür
   
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState('');
@@ -46,10 +47,11 @@ export default function UploadForm({ mode, rolleName: initialRolleName }) {
   };
 
   const handleUpload = async () => {
-    // Validation
+    // Striktere Validierung am Frontend
     if (!vorname.trim() || !nachname.trim()) {
       return setError('Bitte geben Sie Vor- und Nachnamen an.');
     }
+    // Die Rolle wird jetzt vom Dashboard übergeben, daher hier keine Auswahlprüfung mehr
     if (!initialRolleName) {
       return setError('Es wurde keine gültige Rolle übergeben. Bitte wählen Sie eine Option im Dashboard.');
     }
@@ -64,6 +66,8 @@ export default function UploadForm({ mode, rolleName: initialRolleName }) {
     const formData = new FormData();
     formData.append('vorname', vorname.trim());
     formData.append('nachname', nachname.trim());
+    
+    // Die Rolle kommt jetzt direkt als Prop
     formData.append('rolleName', initialRolleName);
     
     files.forEach(file => {
@@ -71,55 +75,35 @@ export default function UploadForm({ mode, rolleName: initialRolleName }) {
     });
 
     try {
-      console.log('Sending upload request...');
-      
       const res = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
       });
 
-      console.log('Response status:', res.status);
-      console.log('Response headers:', res.headers);
+      let data = {};
+      try {
+        data = await res.json();
+      } catch (err) {
+        // Dies fängt den 'Unexpected end of JSON input' Fehler ab
+        throw new Error('Ungültige Server-Antwort oder Verbindungsproblem. Bitte später erneut versuchen.');
+      }
 
-      // WICHTIG: Prüfe zuerst den Response Status und Content-Type
       if (!res.ok) {
-        // Versuche Text zu lesen für bessere Fehlermeldungen
-        let errorMessage;
-        const contentType = res.headers.get('content-type');
-        
-        if (contentType && contentType.includes('application/json')) {
-          const errorData = await res.json();
-          errorMessage = errorData.error || `Server Error ${res.status}`;
-        } else {
-          // Falls Server HTML oder Text zurückgibt
-          const errorText = await res.text();
-          console.error('Non-JSON error response:', errorText);
-          errorMessage = `Server Error ${res.status}: ${errorText.substring(0, 100)}...`;
-        }
-        
-        throw new Error(errorMessage);
+        throw new Error(data.error || 'Ein unbekannter Fehler ist aufgetreten.');
       }
-
-      // Prüfe Content-Type vor JSON-Parsing
-      const contentType = res.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const responseText = await res.text();
-        console.error('Expected JSON but got:', contentType, responseText);
-        throw new Error('Server gab unerwarteten Content-Type zurück');
-      }
-
-      // Erst jetzt JSON parsen
-      const data = await res.json();
-      console.log('Success response:', data);
 
       setSuccess(data.message);
+      // Optional: Wenn die API eine Liste von Fehlern zurückgeben könnte
+      if (data.fehler?.length) {
+        setError('Einige Dateien konnten nicht verarbeitet werden:\n' + data.fehler.join('\n'));
+      }
+
       setFiles([]);
       setVorname('');
       setNachname('');
 
     } catch (err) {
-      console.error('Upload error:', err);
-      setError(err.message || 'Ein unbekannter Fehler ist aufgetreten');
+      setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -132,52 +116,17 @@ export default function UploadForm({ mode, rolleName: initialRolleName }) {
       </h2>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-        <input 
-          type="text" 
-          placeholder="Vorname" 
-          value={vorname} 
-          onChange={(e) => setVorname(e.target.value)} 
-          className="w-full border border-gray-300 rounded-md p-2" 
-          style={{ color: '#111111' }} 
-        />
-        <input 
-          type="text" 
-          placeholder="Nachname" 
-          value={nachname} 
-          onChange={(e) => setNachname(e.target.value)} 
-          className="w-full border border-gray-300 rounded-md p-2" 
-          style={{ color: '#111111' }} 
-        />
+        <input type="text" placeholder="Vorname" value={vorname} onChange={(e) => setVorname(e.target.value)} className="w-full border border-gray-300 rounded-md p-2" style={{ color: '#111111' }} />
+        <input type="text" placeholder="Nachname" value={nachname} onChange={(e) => setNachname(e.target.value)} className="w-full border border-gray-300 rounded-md p-2" style={{ color: '#111111' }} />
       </div>
-
-      <div 
-        onDrop={handleDrop} 
-        onDragOver={(e) => { 
-          e.preventDefault(); 
-          e.stopPropagation(); 
-          setDragActive(true); 
-        }} 
-        onDragLeave={() => setDragActive(false)} 
-        className={`w-full p-6 border-2 border-dashed rounded-md transition-colors ${
-          dragActive ? 'border-green-400 bg-green-50' : 'border-gray-300'
-        }`}
-      >
+      
+      <div onDrop={handleDrop} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragActive(true); }} onDragLeave={() => setDragActive(false)} className={`w-full p-6 border-2 border-dashed rounded-md transition-colors ${dragActive ? 'border-green-400 bg-green-50' : 'border-gray-300'}`}>
         <div className="flex flex-col items-center gap-4">
           <FaCloudUploadAlt style={{ color: '#2d9cdb' }} className="text-4xl" />
-          <label htmlFor="file-upload" className="cursor-pointer font-medium text-center">
-            <span style={{ color: '#111' }}>
-              Dateien hierher ziehen oder{' '}
-              <span style={{ color: '#2d9cdb', textDecoration: 'underline' }}>klicken</span>
-            </span>
+          <label htmlFor="file-upload" className="cursor-pointer font-medium text-center text-[#111]">
+            Dateien hierher ziehen oder <span className="underline" style={{ color: '#2d9cdb' }}>klicken</span>
           </label>
-          <input 
-            id="file-upload" 
-            type="file" 
-            accept=".pdf,.jpg,.jpeg,.png" 
-            multiple 
-            onChange={(e) => handleFiles(e.target.files)} 
-            className="hidden" 
-          />
+          <input id="file-upload" type="file" accept=".pdf,.jpg,.jpeg,.png" multiple onChange={(e) => handleFiles(e.target.files)} className="hidden" />
           <p className="text-xs text-gray-500">Erlaubt: PDF, JPG, PNG (max. 10MB)</p>
         </div>
       </div>
@@ -187,21 +136,14 @@ export default function UploadForm({ mode, rolleName: initialRolleName }) {
           {files.map((file, i) => (
             <div key={i} className="flex justify-between items-center text-sm py-1">
               <span className="truncate pr-2">{file.name}</span>
-              <button onClick={() => setFiles(files.filter((_, idx) => idx !== i))}>
-                <FiX className="text-gray-500 hover:text-600" />
-              </button>
+              <button onClick={() => setFiles(files.filter((_, idx) => idx !== i))}><FiX className="text-gray-500 hover:text-600" /></button>
             </div>
           ))}
         </div>
       )}
 
       <div className="mt-6 text-center">
-        <button 
-          onClick={handleUpload} 
-          disabled={loading || files.length === 0} 
-          className="px-6 py-2 rounded-md font-semibold text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed" 
-          style={{ backgroundColor: loading ? '#a0aec0' : '#2d9cdb' }}
-        >
+        <button onClick={handleUpload} disabled={loading || files.length === 0} className="px-6 py-2 rounded-md font-semibold text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed" style={{ backgroundColor: loading ? '#a0aec0' : '#2d9cdb' }}>
           {loading ? 'Wird hochgeladen...' : `Jetzt ${files.length} Datei(en) hochladen`}
         </button>
       </div>
