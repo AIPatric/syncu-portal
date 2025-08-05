@@ -31,11 +31,16 @@ export default async function handler(req, res) {
       });
     });
 
-    const { vorname, nachname, rolleName } = fields;
+    // Formidable gibt Felder als Arrays zurück, auch wenn nur ein Wert erwartet wird.
+    // Wir müssen sie entsprechend behandeln.
+    const vorname = Array.isArray(fields.vorname) ? fields.vorname[0] : fields.vorname;
+    const nachname = Array.isArray(fields.nachname) ? fields.nachname[0] : fields.nachname;
+    const rolleName = Array.isArray(fields.rolleName) ? fields.rolleName[0] : fields.rolleName;
+
     console.log(`API: Felder empfangen - Vorname: ${vorname}, Nachname: ${nachname}, Rolle: ${rolleName}`);
 
     if (!vorname || !nachname || !rolleName) {
-      console.error('API: Fehlende Pflichtfelder.');
+      console.error('API: Fehlende Pflichtfelder (Vorname, Nachname, Rolle).');
       return res.status(400).json({ error: 'Vorname, Nachname und Rolle sind Pflichtfelder.' });
     }
 
@@ -110,7 +115,6 @@ export default async function handler(req, res) {
         };
       } catch (innerError) {
         console.error(`API: Fehler bei der Verarbeitung von Datei ${file.originalFilename}:`, innerError);
-        // Wichtig: Den Fehler weiterwerfen, damit der Promise.all fehlschlägt
         throw innerError;
       }
     });
@@ -131,7 +135,7 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error('API: Unerwarteter Fehler im Haupt-Try-Catch-Block:', error);
-    if (!res.headersSent) { // Nur senden, wenn noch keine Header gesendet wurden
+    if (!res.headersSent) {
       return res.status(500).json({ error: error.message || 'Ein interner Serverfehler ist aufgetreten.' });
     }
   }
