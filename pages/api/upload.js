@@ -1,15 +1,9 @@
 // /pages/api/upload.js
 
-import { createClient } from '@supabase/supabase-js'; // Korrekter Import für Supabase Admin
-import { IncomingForm } from 'formidable';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import multiparty from 'multiparty';
 import fs from 'fs/promises';
 import { v4 as uuidv4 } from 'uuid';
-
-// Initialisiere Supabase Admin Client (stelle sicher, dass diese Umgebungsvariablen gesetzt sind)
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
 
 export const config = {
   api: {
@@ -18,27 +12,36 @@ export const config = {
 };
 
 export default async function handler(req, res) {
+  // Add CORS headers for better compatibility
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  const form = new IncomingForm({ multiples: true });
+  const form = new multiparty.Form();
 
   try {
     console.log('API: Anfrage empfangen.');
-    const [fields, files] = await new Promise((resolve, reject) => {
+    
+    const { fields, files } = await new Promise((resolve, reject) => {
       form.parse(req, (err, fields, files) => {
         if (err) {
-          console.error('API: Formidable Parse Error:', err);
+          console.error('API: Multiparty Parse Error:', err);
           return reject(err);
         }
-        resolve([fields, files]);
+        resolve({ fields, files });
       });
     });
 
-    // Formidable gibt Felder als Arrays zurück, auch wenn nur ein Wert erwartet wird.
-    // Wir müssen sie entsprechend behandeln.
+    // Multiparty gibt Felder als Arrays zurück, auch wenn nur ein Wert erwartet wird.
     const vorname = Array.isArray(fields.vorname) ? fields.vorname[0] : fields.vorname;
     const nachname = Array.isArray(fields.nachname) ? fields.nachname[0] : fields.nachname;
     const rolleName = Array.isArray(fields.rolleName) ? fields.rolleName[0] : fields.rolleName;
@@ -92,16 +95,24 @@ export default async function handler(req, res) {
     // 3. Verarbeite alle Datei-Uploads parallel
     const uploadPromises = fileList.map(async (file) => {
       try {
-        const fileData = await fs.readFile(file.filepath);
+        const fileData = await fs.readFile(file.path);
         const fileExt = file.originalFilename.split('.').pop();
         const fileName = `${kunde_id}/${uuidv4()}.${fileExt}`;
         
         console.log(`API: Starte Upload für Datei: ${file.originalFilename} zu ${fileName}`);
         const { error: storageError } = await supabaseAdmin.storage
           .from('upload')
-          .upload(fileName, fileData, { contentType: file.mimetype });
+          .upload(fileName, fileData, { 
+            contentType: file.headers['content-type'] || 'application/octet-stream',
+            upsert: false
+          });
 
-        await fs.unlink(file.filepath); // Temporäre Datei löschen
+        // Cleanup: Temporäre Datei löschen
+        try {
+          await fs.unlink(file.path);
+        } catch (unlinkError) {
+          console.warn(`API: Warnung beim Löschen der temporären Datei ${file.path}:`, unlinkError);
+        }
 
         if (storageError) {
           console.error(`API: Storage-Fehler für ${file.originalFilename}:`, storageError);
@@ -136,12 +147,20 @@ export default async function handler(req, res) {
     }
 
     console.log('API: Alle Operationen erfolgreich abgeschlossen. Sende 200 OK.');
-    return res.status(200).json({ success: true, message: `${fileList.length} Datei(en) erfolgreich hochgeladen und zur Verarbeitung vorgemerkt.` });
+    return res.status(200).json({ 
+      success: true, 
+      message: `${fileList.length} Datei(en) erfolgreich hochgeladen und zur Verarbeitung vorgemerkt.` 
+    });
 
   } catch (error) {
     console.error('API: Unerwarteter Fehler im Haupt-Try-Catch-Block:', error);
-    if (!res.headersSent) { // Nur senden, wenn noch keine Header gesendet wurden
-      return res.status(500).json({ error: error.message || 'Ein interner Serverfehler ist aufgetreten.' });
+    
+    // Ensure we always return a proper JSON response
+    if (!res.headersSent) {
+      return res.status(500).json({ 
+        error: error.message || 'Ein interner Serverfehler ist aufgetreten.',
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
     }
   }
 }

@@ -75,35 +75,49 @@ export default function UploadForm({ mode, rolleName: initialRolleName }) { // r
     });
 
     try {
+      // Add timeout for better error handling
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
       const res = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
+        signal: controller.signal,
       });
 
-      let data = {};
-      try {
-        data = await res.json();
-      } catch (err) {
-        // Dies fängt den 'Unexpected end of JSON input' Fehler ab
-        throw new Error('Ungültige Server-Antwort oder Verbindungsproblem. Bitte später erneut versuchen.');
+      clearTimeout(timeoutId);
+
+      // Check if response is actually JSON
+      const contentType = res.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        console.error('Unexpected response content type:', contentType);
+        throw new Error('Server gab eine ungültige Antwort zurück. Bitte versuchen Sie es erneut.');
       }
 
+      const data = await res.json();
+
       if (!res.ok) {
-        throw new Error(data.error || 'Ein unbekannter Fehler ist aufgetreten.');
+        throw new Error(data.error || `Server Fehler: ${res.status} ${res.statusText}`);
       }
 
       setSuccess(data.message);
-      // Optional: Wenn die API eine Liste von Fehlern zurückgeben könnte
-      if (data.fehler?.length) {
-        setError('Einige Dateien konnten nicht verarbeitet werden:\n' + data.fehler.join('\n'));
-      }
-
       setFiles([]);
       setVorname('');
       setNachname('');
+      // Rolle wird nicht zurückgesetzt, da sie als Prop kommt
 
     } catch (err) {
-      setError(err.message);
+      console.error('Upload error:', err);
+      
+      if (err.name === 'AbortError') {
+        setError('Upload-Timeout: Der Upload dauerte zu lange. Bitte versuchen Sie es mit kleineren Dateien erneut.');
+      } else if (err.message.includes('Failed to fetch')) {
+        setError('Netzwerkfehler: Bitte überprüfen Sie Ihre Internetverbindung und versuchen Sie es erneut.');
+      } else if (err.message.includes('JSON')) {
+        setError('Server-Kommunikationsfehler: Bitte versuchen Sie es erneut. Falls das Problem weiterhin besteht, kontaktieren Sie den Support.');
+      } else {
+        setError(err.message || 'Ein unbekannter Fehler ist aufgetreten. Bitte versuchen Sie es erneut.');
+      }
     } finally {
       setLoading(false);
     }
@@ -120,12 +134,18 @@ export default function UploadForm({ mode, rolleName: initialRolleName }) { // r
         <input type="text" placeholder="Nachname" value={nachname} onChange={(e) => setNachname(e.target.value)} className="w-full border border-gray-300 rounded-md p-2" style={{ color: '#111111' }} />
       </div>
       
+      {/* Das Rollen-Dropdown ist jetzt komplett entfernt, da die Rolle vom Dashboard kommt */}
+
       <div onDrop={handleDrop} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragActive(true); }} onDragLeave={() => setDragActive(false)} className={`w-full p-6 border-2 border-dashed rounded-md transition-colors ${dragActive ? 'border-green-400 bg-green-50' : 'border-gray-300'}`}>
         <div className="flex flex-col items-center gap-4">
           <FaCloudUploadAlt style={{ color: '#2d9cdb' }} className="text-4xl" />
-          <label htmlFor="file-upload" className="cursor-pointer font-medium text-center text-[#111]">
-            Dateien hierher ziehen oder <span className="underline" style={{ color: '#2d9cdb' }}>klicken</span>
-          </label>
+          <label htmlFor="file-upload" className="cursor-pointer font-medium text-center">
+  <span style={{ color: '#111' }}>
+    Dateien hierher ziehen oder{' '}
+    <span style={{ color: '#2d9cdb', textDecoration: 'underline' }}>klicken</span>
+  </span>
+</label>
+
           <input id="file-upload" type="file" accept=".pdf,.jpg,.jpeg,.png" multiple onChange={(e) => handleFiles(e.target.files)} className="hidden" />
           <p className="text-xs text-gray-500">Erlaubt: PDF, JPG, PNG (max. 10MB)</p>
         </div>
