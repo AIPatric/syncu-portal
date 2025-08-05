@@ -1,8 +1,0 @@
-{
-  "functions": {
-    "pages/api/upload.js": {
-      "maxDuration": 30
-    }
-  },
-  "regions": ["fra1"]
-}
