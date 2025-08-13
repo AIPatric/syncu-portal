@@ -10,7 +10,7 @@ import {
   FaExclamationTriangle,
 } from 'react-icons/fa';
 
-// ---------- Helpers ----------
+// -------- Helpers --------
 const isGehaltsnachweis = (row) => {
   const a = String(row?.dokument_name || '').toLowerCase();
   const b = String(row?.anzeige_name || '').toLowerCase();
@@ -30,7 +30,7 @@ const getDownloadUrl = (fileUrl) => {
   return data?.publicUrl || null;
 };
 
-// ---------- Styles ----------
+// -------- Styles --------
 const styles = {
   wrapper: { overflowX: 'auto' },
   table: {
@@ -92,7 +92,7 @@ const styles = {
   subThTd: { padding: 6, border: '1px solid #e5e7eb', fontSize: 14 },
 };
 
-// ---------- Component ----------
+// -------- Component --------
 export default function StatusTable({ data }) {
   const [expandedRows, setExpandedRows] = useState({});
   const [expandedGehalts, setExpandedGehalts] = useState({});
@@ -123,7 +123,6 @@ export default function StatusTable({ data }) {
       }
       map[key].items.push(row);
       if (row.vorhanden) map[key].vorhandenCount += 1;
-      // falls mindestanzahl in einer Zeile fehlt, aber in anderer vorhanden ist
       if (map[key].mindestanzahl == null && Number.isFinite(row?.mindestanzahl)) {
         map[key].mindestanzahl = row.mindestanzahl;
       }
@@ -131,14 +130,14 @@ export default function StatusTable({ data }) {
     return map;
   }, [data]);
 
-  // Render-Sequenz bauen: eine aggregierte Gehalts-Zeile pro Gruppe, alle anderen Zeilen normal
+  // Render-Sequenz: eine Gehalts-Gruppe + alle anderen Zeilen
   const renderList = useMemo(() => {
     const seen = new Set();
     const list = [];
     data.forEach((row, index) => {
       if (isGehaltsnachweis(row)) {
         const key = `${row.kunde_id ?? ''}::${row.kundenrolle ?? ''}`;
-        if (seen.has(key)) return; // Gruppe schon hinzugefügt
+        if (seen.has(key)) return;
         seen.add(key);
         list.push({ type: 'gehalt', key, group: gehaltsGroups[key], index });
       } else {
@@ -166,7 +165,7 @@ export default function StatusTable({ data }) {
         </thead>
         <tbody>
           {renderList.map((item) => {
-            // -------- Gehaltsnachweis aggregierte Zeile --------
+            // ---- Gehaltsnachweis aggregiert ----
             if (item.type === 'gehalt') {
               const g = item.group;
               if (!g) return null;
@@ -180,16 +179,13 @@ export default function StatusTable({ data }) {
                     <td style={styles.td}>{g.kunde_name}</td>
                     <td style={styles.td}>{g.kundenrolle}</td>
                     <td style={styles.td}>Gehaltsnachweise</td>
-
                     <td style={styles.td}>
-                      {/* Pflicht für Gehaltsnachweis: wir nehmen an, dass es Pflicht ist, wenn mind. eine Item-Zeile required war */}
                       {g.items.some((it) => !!it.erforderlich) ? (
                         <FaCheckCircle style={styles.ok} />
                       ) : (
                         <span>-</span>
                       )}
                     </td>
-
                     <td style={styles.td}>
                       {g.vorhandenCount > 0 ? (
                         <FaCheckCircle style={styles.ok} />
@@ -197,7 +193,6 @@ export default function StatusTable({ data }) {
                         <FaTimesCircle style={styles.bad} />
                       )}
                     </td>
-
                     <td style={styles.td}>
                       {minSet ? (
                         minOk ? (
@@ -212,25 +207,14 @@ export default function StatusTable({ data }) {
                         <span>-</span>
                       )}
                     </td>
-
                     <td style={styles.td}>
-                      {g.tiefergehende_pruefung ? (
-                        <span style={styles.blueText}>Ja</span>
-                      ) : (
-                        <span>-</span>
-                      )}
+                      {g.tiefergehende_pruefung ? <span style={styles.blueText}>Ja</span> : <span>-</span>}
                     </td>
-
                     <td style={{ ...styles.td, ...styles.center }}>-</td>
-
                     <td style={{ ...styles.td, ...styles.center }}>
                       {g.items.length > 0 ? (
-                        <button
-                          onClick={() => toggleGehaltsRow(g.key)}
-                          style={styles.btnLink}
-                        >
-                          {expandedGehalts[g.key] ? <FaChevronUp /> : <FaChevronDown />}
-                          Details
+                        <button onClick={() => toggleGehaltsRow(g.key)} style={styles.btnLink}>
+                          {expandedGehalts[g.key] ? <FaChevronUp /> : <FaChevronDown />} Details
                         </button>
                       ) : (
                         <span>-</span>
@@ -256,12 +240,7 @@ export default function StatusTable({ data }) {
                                   <td style={styles.subThTd}>{doc.original_name || doc.anzeige_name || 'Datei'}</td>
                                   <td style={{ ...styles.subThTd, textAlign: 'center' }}>
                                     {url ? (
-                                      <a
-                                        href={url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        style={styles.link}
-                                      >
+                                      <a href={url} target="_blank" rel="noopener noreferrer" style={styles.link}>
                                         <FaDownload />
                                         Download
                                       </a>
@@ -281,24 +260,18 @@ export default function StatusTable({ data }) {
               );
             }
 
-            // -------- Normale (nicht Gehaltsnachweis) Zeilen --------
+            // ---- Normale Zeilen ----
             const row = item.row;
             const index = item.index;
 
             const istPflicht = !!row?.erforderlich;
             const vorhanden = !!row?.vorhanden;
-            const mindestanzahlOk =
-              !!row?.mindestanzahl_erfüllt || !!row?.mindestanzahl_erfuellt;
+            const mindestanzahlOk = !!row?.mindestanzahl_erfüllt || !!row?.mindestanzahl_erfuellt;
             const hatMindest = row?.mindestanzahl != null;
             const tiefergehend = !!row?.tiefergehende_pruefung;
 
-            // Details NICHT für Gehaltsnachweis und NICHT für Selbstauskunft anzeigen
-            const allowDetails =
-              tiefergehend &&
-              !!row?.case_typ &&
-              !isGehaltsnachweis(row) &&
-              !isSelbstauskunft(row);
-
+            // Details nur für Nicht-Gehaltsnachweis und Nicht-Selbstauskunft
+            const allowDetails = tiefergehend && !!row?.case_typ && !isGehaltsnachweis(row) && !isSelbstauskunft(row);
             const rowKey = `${row?.kunde_id || 'k'}-${row?.dokumenttyp_id || 'dt'}-${index}`;
 
             return (
@@ -307,19 +280,8 @@ export default function StatusTable({ data }) {
                   <td style={styles.td}>{row?.kunde_name}</td>
                   <td style={styles.td}>{row?.kundenrolle}</td>
                   <td style={styles.td}>{row?.dokument_name}</td>
-
-                  <td style={styles.td}>
-                    {istPflicht ? <FaCheckCircle style={styles.ok} /> : <span>-</span>}
-                  </td>
-
-                  <td style={styles.td}>
-                    {vorhanden ? (
-                      <FaCheckCircle style={styles.ok} />
-                    ) : (
-                      <FaTimesCircle style={styles.bad} />
-                    )}
-                  </td>
-
+                  <td style={styles.td}>{istPflicht ? <FaCheckCircle style={styles.ok} /> : <span>-</span>}</td>
+                  <td style={styles.td}>{vorhanden ? <FaCheckCircle style={styles.ok} /> : <FaTimesCircle style={styles.bad} />}</td>
                   <td style={styles.td}>
                     {hatMindest ? (
                       mindestanzahlOk ? (
@@ -334,19 +296,10 @@ export default function StatusTable({ data }) {
                       <span>-</span>
                     )}
                   </td>
-
-                  <td style={styles.td}>
-                    {tiefergehend ? <span style={styles.blueText}>Ja</span> : <span>-</span>}
-                  </td>
-
+                  <td style={styles.td}>{tiefergehend ? <span style={styles.blueText}>Ja</span> : <span>-</span>}</td>
                   <td style={{ ...styles.td, ...styles.center }}>
                     {getDownloadUrl(row?.file_url) ? (
-                      <a
-                        href={getDownloadUrl(row?.file_url)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={styles.link}
-                      >
+                      <a href={getDownloadUrl(row?.file_url)} target="_blank" rel="noopener noreferrer" style={styles.link}>
                         <FaDownload />
                         Download
                       </a>
@@ -354,12 +307,10 @@ export default function StatusTable({ data }) {
                       <span>-</span>
                     )}
                   </td>
-
                   <td style={{ ...styles.td, ...styles.center }}>
                     {allowDetails ? (
                       <button onClick={() => toggleRow(index)} style={styles.btnLink}>
-                        {expandedRows[index] ? <FaChevronUp /> : <FaChevronDown />}
-                        Details
+                        {expandedRows[index] ? <FaChevronUp /> : <FaChevronDown />} Details
                       </button>
                     ) : (
                       <span>-</span>
