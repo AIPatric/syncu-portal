@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/router'
 import { FaFileAlt, FaUserCheck, FaBuilding } from 'react-icons/fa'
 import UploadForm from '../components/UploadForm'
+import StatusTable from '../components/StatusTable' // neu
 
 export default function Dashboard() {
   const router = useRouter()
@@ -10,15 +11,35 @@ export default function Dashboard() {
   const [selectedService, setSelectedService] = useState(null)
   const [subType, setSubType] = useState(null)
 
+  // Neu für Status-Tab
+  const [statusData, setStatusData] = useState([])
+  const [loading, setLoading] = useState(false)
+
   const resetSelection = () => {
     setSelectedService(null)
     setSubType(null)
   }
 
-  // Funktion zur Bestimmung des Rollennamens basierend auf subType
+  // Neu: Daten laden wenn "history"-Tab aktiv
+  useEffect(() => {
+    if (activeTab === 'history') {
+      setLoading(true)
+      fetch('/api/dokumentenstatus') // API-Route die den View abfragt
+        .then((res) => res.json())
+        .then((data) => {
+          setStatusData(data)
+          setLoading(false)
+        })
+        .catch((err) => {
+          console.error('Fehler beim Laden der Statusdaten:', err)
+          setLoading(false)
+        })
+    }
+  }, [activeTab])
+
   const getRolleName = (type, sub) => {
     if (type === 'objektunterlagen') {
-      return 'Verkäufer'; // Feste Rolle für Objektunterlagen
+      return 'Verkäufer';
     } else if (type === 'bonitaet' && sub) {
       if (sub === 'angestellter') {
         return 'Käufer (angestellt)';
@@ -26,7 +47,7 @@ export default function Dashboard() {
         return 'Käufer (selbstständig)';
       }
     }
-    return ''; // Standardwert, falls keine Rolle zutrifft
+    return '';
   };
 
   return (
@@ -75,7 +96,7 @@ export default function Dashboard() {
               color: activeTab === 'history' ? '#111111' : '#444',
             }}
           >
-            Verlauf
+            Status
           </button>
         </div>
 
@@ -120,7 +141,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* SubType Auswahl für Bonität */}
+        {/* SubType Auswahl */}
         {selectedService === 'bonitaet' && !subType && (
           <div className="bg-white p-6 rounded-lg shadow-md space-y-4">
             <div className="flex justify-between items-center">
@@ -144,7 +165,7 @@ export default function Dashboard() {
                   <p className="font-semibold text-[#111]">Angestellter</p>
                 </div>
                 <p className="text-sm text-gray-600">
-                  Festes Anstellungsverhältnis (z. B. Gehaltsabrechnung)
+                  Festes Anstellungsverhältnis (z. B. Gehaltsabrechnung)
                 </p>
               </div>
               <div
@@ -156,7 +177,7 @@ export default function Dashboard() {
                   <p className="font-semibold text-[#111]">Selbständiger</p>
                 </div>
                 <p className="text-sm text-gray-600">
-                  Freiberuflich oder gewerblich tätig (z. B. BWA, EÜR)
+                  Freiberuflich oder gewerblich tätig (z. B. BWA, EÜR)
                 </p>
               </div>
             </div>
@@ -180,7 +201,6 @@ export default function Dashboard() {
                 Zurück zur Auswahl
               </button>
             </div>
-            {/* Übergabe der Props an UploadForm */} 
             <UploadForm 
               mode={selectedService} 
               rolleName={getRolleName(selectedService, subType)} 
@@ -188,15 +208,17 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Verlauf (bleibt erstmal leer) */}
+        {/* Status-Tab */}
         {activeTab === 'history' && (
-          <div className="bg-white p-6 rounded-lg text-center text-gray-600">
-            <p>Bisher wurden keine Prüfungen durchgeführt.</p>
+          <div className="bg-white p-6 rounded-lg">
+            {loading ? (
+              <p>Lade Daten...</p>
+            ) : (
+              <StatusTable data={statusData} />
+            )}
           </div>
         )}
       </div>
     </div>
   )
 }
-
-
