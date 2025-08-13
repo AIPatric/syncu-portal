@@ -1,134 +1,101 @@
-import { FaUserCheck, FaFileAlt } from 'react-icons/fa';
-
-const tokens = {
-  text: '#111', muted: '#6b7280', border: '#e5e7eb', card: '#fff',
-  page: '#f2f2f2', primary: '#2d9cdb', success: '#16a34a',
-  warn: '#f59e0b', danger: '#dc2626'
-};
-
-function computeProgress(summary) {
-  const { reqTotal, reqOk, minTotal, minOk, deepTotal, deepOk } = summary;
-
-  // dynamische Gewichtung: fehlende Kategorien werden auf die übrigen verteilt
-  const weights = { req: 0.6, min: 0.25, deep: 0.15 };
-  const active = [];
-  if (reqTotal > 0) active.push('req');
-  if (minTotal > 0) active.push('min');
-  if (deepTotal > 0) active.push('deep');
-  const sumW = active.reduce((s,k)=>s+weights[k],0) || 1;
-  const norm = (k)=>weights[k]/sumW;
-
-  const reqPart = reqTotal ? (reqOk/reqTotal)*norm('req') : 0;
-  const minPart = minTotal ? (minOk/minTotal)*norm('min') : 0;
-  const deepPart = deepTotal ? (deepOk/deepTotal)*norm('deep') : 0;
-  return Math.round((reqPart+minPart+deepPart)*100);
-}
-
-function deriveStatus(summary, progress) {
-  if (summary.deepFailed > 0) return 'Fehlgeschlagen';
-  if (progress === 100) return 'Abgeschlossen';
-  if (summary.anyUpload) return 'In Bearbeitung';
-  return 'Wartet auf Upload';
-}
+// components/StatusOverview.js
+import { FaUserCheck } from 'react-icons/fa';
 
 export default function StatusOverview({ rows, onOpenDetail }) {
-  // Gruppieren nach kunde_id + kundenrolle (oder nutze hier report_id, falls vorhanden)
+  // Gruppierung: kunde_id + kundenrolle
   const grouped = rows.reduce((acc, r) => {
     const key = `${r.kunde_id}::${r.kundenrolle || ''}`;
     acc[key] = acc[key] || {
       kunde_id: r.kunde_id,
       kunde_name: r.kunde_name,
       kundenrolle: r.kundenrolle,
-      startedAt: r.letztes_update || r.erkannt_am || r.gestartet_am,
       reqTotal: 0, reqOk: 0,
       minTotal: 0, minOk: 0,
       deepTotal: 0, deepOk: 0, deepFailed: 0,
-      anyUpload: false
+      anyUpload: false,
+      letztes_update: r.letztes_update || r.erkannt_am || null,
     };
-
     const g = acc[key];
-
-    // Pflicht
-    if (r.erforderlich) {
-      g.reqTotal += 1;
-      if (r.vorhanden) g.reqOk += 1;
-    }
-
-    // Mindestanzahl
-    if (Number.isFinite(r?.mindestanzahl)) {
-      g.minTotal += 1;
-      if (r.mindestanzahl_erfüllt || r.mindestanzahl_erfuellt) g.minOk += 1;
-    }
-
-    // Deep
+    if (r.erforderlich) { g.reqTotal++; if (r.vorhanden) g.reqOk++; }
+    if (r.mindestanzahl != null) { g.minTotal++; if (r.mindestanzahl_erfüllt || r.mindestanzahl_erfuellt) g.minOk++; }
     if (r.tiefergehende_pruefung) {
-      g.deepTotal += 1;
-      const cs = (r.case_status || '').toLowerCase();
-      if (cs === 'passed') g.deepOk += 1;
-      if (cs === 'failed') g.deepFailed += 1;
+      g.deepTotal++;
+      const s = String(r.case_status || '').toLowerCase();
+      if (s === 'passed') g.deepOk++;
+      if (s === 'failed') g.deepFailed++;
     }
-
-    // Upload vorhanden?
     if (r.file_url) g.anyUpload = true;
-
-    // zuletzt aktualisiert
-    const t = new Date(r.letztes_update || r.erkannt_am || r.gestartet_am || Date.now()).getTime();
-    const cur = new Date(g.startedAt || 0).getTime();
-    if (t > cur) g.startedAt = new Date(t).toISOString();
-
     return acc;
   }, {});
 
-  const summaries = Object.values(grouped).map(s => {
+  const computeProgress = (s) => {
+    const w = { req: 0.6, min: 0.25, deep: 0.15 };
+    const active = [];
+    if (s.reqTotal) active.push('req');
+    if (s.minTotal) active.push('min');
+    if (s.deepTotal) active.push('deep');
+    const sum = active.reduce((a, k) => a + w[k], 0) || 1;
+    const part = (ok, total, k) => (total ? (ok / total) * (w[k] / sum) : 0);
+    return Math.round(100 * (part(s.reqOk, s.reqTotal, 'req') + part(s.minOk, s.minTotal, 'min') + part(s.deepOk, s.deepTotal, 'deep')));
+  };
+
+  const deriveStatus = (s, p) => {
+    if (s.deepFailed > 0) return 'Fehlgeschlagen';
+    if (p === 100) return 'Abgeschlossen';
+    if (s.anyUpload) return 'In Bearbeitung';
+    return 'Wartet auf Upload';
+  };
+
+  const summaries = Object.values(grouped).map((s) => {
     const progress = computeProgress(s);
     const status = deriveStatus(s, progress);
     return { ...s, progress, status };
   });
 
-  const styles = {
-    list: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(340px,1fr))', gap: 16 },
-    card: {
-      background: tokens.card, border: `1px solid ${tokens.border}`, borderRadius: 12,
-      padding: 16, boxShadow: '0 1px 2px rgba(0,0,0,0.05)', cursor: 'pointer'
+  const card = {
+    base: {
+      background: '#fff',
+      border: '1px solid #e5e7eb',
+      borderRadius: 12,
+      padding: 16,
+      boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+      cursor: 'pointer',
     },
-    row: { display: 'flex', alignItems: 'center', gap: 12 },
-    title: { margin: 0, fontWeight: 700, color: tokens.text, fontSize: 16 },
-    sub: { margin: 0, color: tokens.muted, fontSize: 13 },
-    pill: (colorBg, colorText)=>({
-      padding: '4px 10px', borderRadius: 999, background: colorBg, color: colorText,
-      fontWeight: 600, fontSize: 12
-    }),
+    row: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+    left: { display: 'flex', alignItems: 'center', gap: 12 },
+    title: { margin: 0, fontWeight: 700, color: '#111', fontSize: 16 },
+    sub: { margin: 0, color: '#6b7280', fontSize: 13 },
+    pill: (bg, fg) => ({ padding: '4px 10px', borderRadius: 999, background: bg, color: fg, fontWeight: 700, fontSize: 12 }),
     barWrap: { height: 10, background: '#e5e7eb', borderRadius: 999, overflow: 'hidden', marginTop: 12 },
-    bar: (p)=>({ width: `${p}%`, height: '100%', background: tokens.primary }),
-    meta: { display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 12, color: tokens.muted }
+    bar: (p) => ({ width: `${p}%`, height: '100%', background: '#2d9cdb' }),
+    meta: { display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 12, color: '#6b7280' },
   };
 
   const pillFor = (status) => {
     switch (status) {
-      case 'Abgeschlossen': return styles.pill('#dcfce7', tokens.success);
-      case 'Fehlgeschlagen': return styles.pill('#fee2e2', tokens.danger);
-      case 'In Bearbeitung': return styles.pill('#fef3c7', tokens.warn);
-      default: return styles.pill('#dbeafe', '#2563eb');
+      case 'Abgeschlossen': return card.pill('#dcfce7', '#16a34a');
+      case 'Fehlgeschlagen': return card.pill('#fee2e2', '#dc2626');
+      case 'In Bearbeitung': return card.pill('#fef3c7', '#f59e0b');
+      default: return card.pill('#dbeafe', '#2563eb');
     }
   };
 
   return (
-    <div style={styles.list}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(340px,1fr))', gap: 16 }}>
       {summaries.map((s, i) => (
-        <div key={i} style={styles.card} onClick={() => onOpenDetail(s)}>
-          <div style={{ ...styles.row, justifyContent: 'space-between' }}>
-            <div style={styles.row}>
+        <div key={i} style={card.base} onClick={() => onOpenDetail(s)}>
+          <div style={card.row}>
+            <div style={card.left}>
               <FaUserCheck style={{ color: '#16a34a' }} />
               <div>
-                <p style={styles.title}>{s.kunde_name}</p>
-                <p style={styles.sub}>{s.kundenrolle || '—'}</p>
+                <p style={card.title}>{s.kunde_name}</p>
+                <p style={card.sub}>{s.kundenrolle || '—'}</p>
               </div>
             </div>
             <span style={pillFor(s.status)}>{s.status}</span>
           </div>
-
-          <div style={styles.barWrap}><div style={styles.bar(s.progress)} /></div>
-          <div style={styles.meta}>
+          <div style={card.barWrap}><div style={card.bar(s.progress)} /></div>
+          <div style={card.meta}>
             <span>Fortschritt {s.progress}%</span>
             <span>
               Pflicht {s.reqOk}/{s.reqTotal}
