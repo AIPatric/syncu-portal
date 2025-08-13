@@ -23,12 +23,46 @@ const isSelbstauskunft = (row) => {
   return a.includes('selbstauskunft') || b.includes('selbst auskunft') || b.includes('selbst-auskunft');
 };
 
-const getDownloadUrl = (fileUrl) => {
-  if (!fileUrl) return null;
-  if (/^https?:\/\//i.test(fileUrl)) return fileUrl;
-  const { data } = supabase.storage.from('upload').getPublicUrl(fileUrl);
+/**
+ * Robust: akzeptiert
+ *  - absolute URL (http...)  -> wird direkt zurückgegeben
+ *  - "upload/dir/file.pdf"   -> Bucket 'upload', Pfad 'dir/file.pdf'
+ *  - ".../object/public/upload/dir/file.pdf" -> aus URL extrahieren
+ */
+function getDownloadUrl(raw) {
+  if (!raw) return null;
+
+  // 1) absolute URL -> direkt verwenden
+  if (/^https?:\/\//i.test(raw)) return raw;
+
+  let bucket = null;
+  let path = null;
+
+  // 2) Supabase-Storage-URL parsen (public/sign)
+  //    .../storage/v1/object/public/<bucket>/<path...>
+  //    .../storage/v1/object/sign/<bucket>/<path...>
+  const publicMatch = raw.match(/\/storage\/v1\/object\/public\/([^/]+)\/(.+)$/i);
+  const signMatch = raw.match(/\/storage\/v1\/object\/sign\/([^/]+)\/(.+)$/i);
+  if (publicMatch) {
+    bucket = publicMatch[1];
+    path = publicMatch[2];
+  } else if (signMatch) {
+    bucket = signMatch[1];
+    path = signMatch[2];
+  }
+
+  // 3) Pfad, der mit "<bucket>/" beginnt
+  if (!bucket && /^[^/]+\/.+/.test(raw)) {
+    const segs = raw.split('/');
+    bucket = segs.shift();
+    path = segs.join('/');
+  }
+
+  if (!bucket || !path) return null;
+
+  const { data } = supabase.storage.from(bucket).getPublicUrl(path);
   return data?.publicUrl || null;
-};
+}
 
 // -------- Styles --------
 const styles = {

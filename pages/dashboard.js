@@ -2,11 +2,11 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/router';
-import { FaFileAlt, FaUserCheck, FaBuilding } from 'react-icons/fa';
+import { FaFileAlt, FaUserCheck, FaBuilding, FaCheckCircle, FaTimesCircle } from 'react-icons/fa';
 
 import UploadForm from '../components/UploadForm';
 import StatusTable from '../components/StatusTable';
-import StatusOverview from '../components/StatusOverview'; // neue Übersicht (Cards)
+import StatusOverview from '../components/StatusOverview';
 
 const tokens = {
   colors: {
@@ -19,6 +19,8 @@ const tokens = {
     primary: '#2d9cdb',
     primaryHover: '#5cb682',
     border: '#e5e7eb',
+    green: '#16a34a',
+    red: '#dc2626',
   },
   shadow: '0 1px 2px rgba(0,0,0,0.05), 0 1px 3px rgba(0,0,0,0.08)',
   radius: 12,
@@ -34,7 +36,7 @@ export default function Dashboard() {
   // Statusdaten
   const [statusData, setStatusData] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [activeReport, setActiveReport] = useState(null); // Übersicht -> Detail
+  const [activeReport, setActiveReport] = useState(null);
 
   const resetSelection = () => {
     setSelectedService(null);
@@ -49,7 +51,7 @@ export default function Dashboard() {
         .then((data) => {
           setStatusData(Array.isArray(data) ? data : []);
           setLoading(false);
-          setActiveReport(null); // immer mit Übersicht starten
+          setActiveReport(null);
         })
         .catch((err) => {
           console.error('Fehler beim Laden der Statusdaten:', err);
@@ -66,6 +68,67 @@ export default function Dashboard() {
     }
     return '';
   };
+
+  // --- Netto-Abgleich aus Detaildaten extrahieren ---
+  const filteredRows = activeReport
+    ? statusData.filter(
+        (r) =>
+          String(r.kunde_id) === String(activeReport.kunde_id) &&
+          String(r.kundenrolle || '') === String(activeReport.kundenrolle || '')
+      )
+    : statusData;
+
+  const nettoInfo = (() => {
+    if (!activeReport) return null;
+
+    const asNumber = (v) => {
+      if (v == null) return null;
+      if (typeof v === 'number' && isFinite(v)) return v;
+      if (typeof v === 'string') {
+        const cleaned = v.replace(/\s/g, '').replace(/\./g, '').replace(/,/g, '.');
+        const n = Number(cleaned);
+        return isFinite(n) ? n : null;
+      }
+      if (typeof v === 'object') {
+        for (const k of ['netto', 'value', 'betrag', 'amount']) {
+          if (v[k] != null) {
+            const n = asNumber(v[k]);
+            if (n != null) return n;
+          }
+        }
+      }
+      return null;
+    };
+
+    let lowest = null;
+    let selfRep = null;
+
+    filteredRows.forEach((r) => {
+      const name = String(r.dokument_name || '').toLowerCase();
+      const caseTyp = String(r.case_typ || '').toLowerCase();
+
+      // niedrigstes Netto (aus Cases „netto_abgleich“ oder aus Zahl in case_details an Gehaltsnachweisen)
+      if (name.includes('gehalts')) {
+        const val =
+          caseTyp === 'netto_abgleich' ? asNumber(r.case_details) : asNumber(r.case_details);
+        if (val != null) {
+          if (lowest == null || val < lowest) lowest = val;
+        }
+      }
+      // selbstauskunft netto (Case „angegebenes_netto“ oder an der Selbstauskunft-Zeile)
+      if (name.includes('selbstauskunft')) {
+        const val = asNumber(r.case_details);
+        if (val != null) selfRep = val;
+      }
+      if (caseTyp.includes('angegebenes_netto')) {
+        const val = asNumber(r.case_details);
+        if (val != null) selfRep = val;
+      }
+    });
+
+    const bestanden = lowest != null && selfRep != null && lowest >= selfRep;
+    return { lowest, selfRep, bestanden };
+  })();
 
   const styles = {
     page: { minHeight: '100vh', backgroundColor: tokens.colors.bgPage },
@@ -157,18 +220,42 @@ export default function Dashboard() {
       padding: 0,
     },
     statusWrap: { backgroundColor: tokens.colors.bgCard, padding: 24, borderRadius: tokens.radius },
+
+    // Netto Box
+    nettoBox: {
+      border: `1px solid ${tokens.colors.border}`,
+      borderRadius: tokens.radiusSm,
+      padding: 16,
+      background: '#f9fafb',
+      marginBottom: 16,
+    },
+    nettoGrid: {
+      display: 'grid',
+      gridTemplateColumns: '1fr 1fr 1fr',
+      gap: 12,
+      alignItems: 'stretch',
+    },
+    nettoCell: {
+      background: '#fff',
+      border: `1px solid ${tokens.colors.border}`,
+      borderRadius: tokens.radiusSm,
+      padding: 12,
+    },
+    nettoLabel: { margin: 0, color: tokens.colors.textMuted, fontSize: 12 },
+    nettoValue: { margin: 0, color: tokens.colors.text, fontWeight: 700, fontSize: 18 },
+    nettoBadge: (ok) => ({
+      justifySelf: 'end',
+      alignSelf: 'start',
+      padding: '4px 10px',
+      borderRadius: 999,
+      background: ok ? '#dcfce7' : '#fee2e2',
+      color: ok ? tokens.colors.green : tokens.colors.red,
+      fontWeight: 700,
+      fontSize: 12,
+    }),
   };
 
   const [hoverCard, setHoverCard] = useState(null);
-
-  // Zeilen nach gewählter Gruppe filtern (wenn Detail geöffnet)
-  const filteredRows = activeReport
-    ? statusData.filter(
-        (r) =>
-          String(r.kunde_id) === String(activeReport.kunde_id) &&
-          String(r.kundenrolle || '') === String(activeReport.kundenrolle || '')
-      )
-    : statusData;
 
   return (
     <div style={styles.page}>
@@ -176,13 +263,7 @@ export default function Dashboard() {
       <header style={styles.header}>
         <div style={styles.headerInner}>
           <div style={{ display: 'flex', alignItems: 'center' }}>
-            <Image
-              src="/logo_mikaeli.svg"
-              alt="Kundenlogo"
-              width={140}
-              height={140}
-              style={{ objectFit: 'contain' }}
-            />
+            <Image src="/logo_mikaeli.svg" alt="Kundenlogo" width={140} height={140} style={{ objectFit: 'contain' }} />
           </div>
           <div>
             <h1 style={styles.title}>Willkommen auf Ihrem Dashboard</h1>
@@ -217,7 +298,6 @@ export default function Dashboard() {
         {/* Auswahlkarten */}
         {activeTab === 'services' && !selectedService && (
           <div style={styles.cardGrid}>
-            {/* Objektunterlagen */}
             <div
               style={{ ...styles.card, ...(hoverCard === 'objekt' ? styles.cardHover : {}) }}
               onMouseEnter={() => setHoverCard('objekt')}
@@ -228,9 +308,7 @@ export default function Dashboard() {
                 <FaFileAlt style={{ color: '#2563eb', fontSize: 20 }} />
                 <h2 style={styles.cardTitle}>Objektunterlagen prüfen</h2>
               </div>
-              <p style={styles.cardText}>
-                Lassen Sie Ihre Objektunterlagen professionell prüfen und bewerten.
-              </p>
+              <p style={styles.cardText}>Lassen Sie Ihre Objektunterlagen professionell prüfen und bewerten.</p>
               <button
                 style={styles.primaryBtn}
                 onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = tokens.colors.primaryHover)}
@@ -240,7 +318,6 @@ export default function Dashboard() {
               </button>
             </div>
 
-            {/* Bonitätsprüfung */}
             <div
               style={{ ...styles.card, ...(hoverCard === 'bonitaet' ? styles.cardHover : {}) }}
               onMouseEnter={() => setHoverCard('bonitaet')}
@@ -268,25 +345,12 @@ export default function Dashboard() {
           <div style={styles.panel}>
             <div style={styles.panelHeaderRow}>
               <h2 style={styles.panelTitle}>Berufsgruppe wählen</h2>
-              <button onClick={resetSelection} style={styles.linkBtn}>
-                Zurück
-              </button>
+              <button onClick={resetSelection} style={styles.linkBtn}>Zurück</button>
             </div>
 
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-                gap: 16,
-              }}
-            >
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
               <div
-                style={{
-                  border: `1px solid ${tokens.colors.border}`,
-                  borderRadius: tokens.radiusSm,
-                  padding: 16,
-                  cursor: 'pointer',
-                }}
+                style={{ border: `1px solid ${tokens.colors.border}`, borderRadius: tokens.radiusSm, padding: 16, cursor: 'pointer' }}
                 onMouseEnter={(e) => (e.currentTarget.style.boxShadow = '0 6px 18px rgba(0,0,0,0.08)')}
                 onMouseLeave={(e) => (e.currentTarget.style.boxShadow = 'none')}
                 onClick={() => setSubType('angestellter')}
@@ -301,12 +365,7 @@ export default function Dashboard() {
               </div>
 
               <div
-                style={{
-                  border: `1px solid ${tokens.colors.border}`,
-                  borderRadius: tokens.radiusSm,
-                  padding: 16,
-                  cursor: 'pointer',
-                }}
+                style={{ border: `1px solid ${tokens.colors.border}`, borderRadius: tokens.radiusSm, padding: 16, cursor: 'pointer' }}
                 onMouseEnter={(e) => (e.currentTarget.style.boxShadow = '0 6px 18px rgba(0,0,0,0.08)')}
                 onMouseLeave={(e) => (e.currentTarget.style.boxShadow = 'none')}
                 onClick={() => setSubType('selbstaendiger')}
@@ -324,18 +383,13 @@ export default function Dashboard() {
         )}
 
         {/* Uploadformular */}
-        {(selectedService === 'objektunterlagen' ||
-          (selectedService === 'bonitaet' && subType)) && (
+        {(selectedService === 'objektunterlagen' || (selectedService === 'bonitaet' && subType)) && (
           <div style={{ ...styles.panel, marginTop: 24 }}>
             <div style={styles.panelHeaderRow}>
               <h2 style={styles.panelTitle}>
-                {selectedService === 'objektunterlagen'
-                  ? 'Objektunterlagen hochladen'
-                  : `Bonitätsprüfung – ${subType}`}
+                {selectedService === 'objektunterlagen' ? 'Objektunterlagen hochladen' : `Bonitätsprüfung – ${subType}`}
               </h2>
-              <button onClick={resetSelection} style={styles.linkBtn}>
-                Zurück zur Auswahl
-              </button>
+              <button onClick={resetSelection} style={styles.linkBtn}>Zurück zur Auswahl</button>
             </div>
             <UploadForm mode={selectedService} rolleName={getRolleName(selectedService, subType)} />
           </div>
@@ -347,26 +401,47 @@ export default function Dashboard() {
             {loading ? (
               <p>Lade Daten...</p>
             ) : !activeReport ? (
-              // Übersichtskarten (immer zuerst)
               <StatusOverview rows={statusData} onOpenDetail={(summary) => setActiveReport(summary)} />
             ) : (
-              // Detailansicht (Checkliste)
               <>
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    marginBottom: 12,
-                  }}
-                >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                   <h2 style={styles.panelTitle}>
                     {activeReport.kunde_name} — {activeReport.kundenrolle || '—'}
                   </h2>
-                  <button onClick={() => setActiveReport(null)} style={styles.linkBtn}>
-                    Zur Übersicht
-                  </button>
+                  <button onClick={() => setActiveReport(null)} style={styles.linkBtn}>Zur Übersicht</button>
                 </div>
+
+                {/* Netto-Abgleich Box */}
+                {nettoInfo && (
+                  <div style={styles.nettoBox}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', marginBottom: 8 }}>
+                      <strong style={{ color: tokens.colors.text }}>Bonität – Netto-Abgleich</strong>
+                      <span style={styles.nettoBadge(nettoInfo.bestanden)}>
+                        {nettoInfo.bestanden ? 'Abgleich bestanden' : 'Abgleich nicht bestanden'}
+                      </span>
+                    </div>
+                    <div style={styles.nettoGrid}>
+                      <div style={styles.nettoCell}>
+                        <p style={styles.nettoLabel}>Niedrigstes Netto (Gehaltsnachweise)</p>
+                        <p style={styles.nettoValue}>{nettoInfo.lowest != null ? nettoInfo.lowest.toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €' : '—'}</p>
+                      </div>
+                      <div style={styles.nettoCell}>
+                        <p style={styles.nettoLabel}>Selbstauskunft (Netto)</p>
+                        <p style={styles.nettoValue}>{nettoInfo.selfRep != null ? nettoInfo.selfRep.toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €' : '—'}</p>
+                      </div>
+                      <div style={styles.nettoCell}>
+                        <p style={styles.nettoLabel}>Differenz</p>
+                        <p style={styles.nettoValue}>
+                          {nettoInfo.lowest != null && nettoInfo.selfRep != null
+                            ? (nettoInfo.selfRep - nettoInfo.lowest).toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €'
+                            : '—'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Detail-Tabelle */}
                 <StatusTable data={filteredRows} />
               </>
             )}
