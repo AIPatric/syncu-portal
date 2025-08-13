@@ -1,19 +1,21 @@
+// pages/Dashboard.js
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/router';
 import { FaFileAlt, FaUserCheck, FaBuilding } from 'react-icons/fa';
+
 import UploadForm from '../components/UploadForm';
 import StatusTable from '../components/StatusTable';
+import StatusOverview from '../components/StatusOverview'; // neue Übersicht (Cards)
 
-// Design Tokens (entsprechen deinem Tailwind-Look & Feel)
 const tokens = {
   colors: {
     text: '#111111',
     textMuted: '#6b7280',
-    textSoft: '#4b5563',
     bgPage: '#f2f2f2',
     bgCard: '#ffffff',
-    bgSubtle: '#e5e7eb',
+    bgTabs: '#e5e7eb',
+    tabIdle: '#d1d5db',
     primary: '#2d9cdb',
     primaryHover: '#5cb682',
     border: '#e5e7eb',
@@ -21,7 +23,6 @@ const tokens = {
   shadow: '0 1px 2px rgba(0,0,0,0.05), 0 1px 3px rgba(0,0,0,0.08)',
   radius: 12,
   radiusSm: 8,
-  spacing: (n) => n, // px
 };
 
 export default function Dashboard() {
@@ -30,9 +31,10 @@ export default function Dashboard() {
   const [selectedService, setSelectedService] = useState(null);
   const [subType, setSubType] = useState(null);
 
-  // Status-Daten
+  // Statusdaten
   const [statusData, setStatusData] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [activeReport, setActiveReport] = useState(null); // Übersicht -> Detail
 
   const resetSelection = () => {
     setSelectedService(null);
@@ -45,8 +47,9 @@ export default function Dashboard() {
       fetch('/api/dokumentenstatus')
         .then((res) => res.json())
         .then((data) => {
-          setStatusData(data || []);
+          setStatusData(Array.isArray(data) ? data : []);
           setLoading(false);
+          setActiveReport(null); // immer mit Übersicht starten
         })
         .catch((err) => {
           console.error('Fehler beim Laden der Statusdaten:', err);
@@ -64,45 +67,30 @@ export default function Dashboard() {
     return '';
   };
 
-  // Styles
   const styles = {
-    page: {
-      minHeight: '100vh',
-      backgroundColor: tokens.colors.bgPage,
-    },
+    page: { minHeight: '100vh', backgroundColor: tokens.colors.bgPage },
     header: {
       backgroundColor: tokens.colors.bgCard,
       borderBottom: `1px solid ${tokens.colors.border}`,
       boxShadow: tokens.shadow,
     },
     headerInner: {
-      maxWidth: 1152, // ~ max-w-6xl
+      maxWidth: 1152,
       margin: '0 auto',
       padding: '24px 16px',
       display: 'flex',
       alignItems: 'center',
       gap: 16,
     },
-    title: {
-      fontSize: 24,
-      fontWeight: 700,
-      color: tokens.colors.text,
-      margin: 0,
-    },
-    subtitle: {
-      color: tokens.colors.textMuted,
-      margin: 0,
-    },
-    container: {
-      maxWidth: 1152,
-      margin: '0 auto',
-      padding: '24px 16px',
-    },
+    title: { fontSize: 24, fontWeight: 700, color: tokens.colors.text, margin: 0 },
+    subtitle: { color: tokens.colors.textMuted, margin: 0 },
+    container: { maxWidth: 1152, margin: '0 auto', padding: '24px 16px' },
+
     tabs: {
       display: 'flex',
       gap: 8,
       marginBottom: 24,
-      backgroundColor: '#e5e7eb',
+      backgroundColor: tokens.colors.bgTabs,
       padding: 4,
       borderRadius: tokens.radiusSm,
     },
@@ -113,16 +101,13 @@ export default function Dashboard() {
       borderRadius: tokens.radiusSm,
       fontWeight: 600,
       transition: 'background-color 120ms ease, color 120ms ease',
-      backgroundColor: active ? '#ffffff' : '#d1d5db',
+      backgroundColor: active ? tokens.colors.bgCard : tokens.colors.tabIdle,
       color: active ? tokens.colors.text : '#444444',
       border: 'none',
       cursor: 'pointer',
     }),
-    cardGrid: {
-      display: 'flex',
-      flexWrap: 'wrap',
-      gap: 24,
-    },
+
+    cardGrid: { display: 'flex', flexWrap: 'wrap', gap: 24 },
     card: {
       backgroundColor: tokens.colors.bgCard,
       padding: 24,
@@ -130,30 +115,13 @@ export default function Dashboard() {
       boxShadow: tokens.shadow,
       cursor: 'pointer',
       flex: '1 1 320px',
-      maxWidth: 'calc(50% - 12px)', // verhält sich wie md:grid-cols-2
+      maxWidth: 'calc(50% - 12px)',
       transition: 'transform 120ms ease, box-shadow 120ms ease',
     },
-    cardHover: {
-      transform: 'translateY(-1px)',
-      boxShadow: '0 6px 18px rgba(0,0,0,0.08)',
-    },
-    cardHeader: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 12,
-      marginBottom: 8,
-    },
-    cardTitle: {
-      fontSize: 18,
-      fontWeight: 600,
-      color: tokens.colors.text,
-      margin: 0,
-    },
-    cardText: {
-      fontSize: 14,
-      color: tokens.colors.textMuted,
-      margin: '0 0 16px 0',
-    },
+    cardHover: { transform: 'translateY(-1px)', boxShadow: '0 6px 18px rgba(0,0,0,0.08)' },
+    cardHeader: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 },
+    cardTitle: { fontSize: 18, fontWeight: 600, color: tokens.colors.text, margin: 0 },
+    cardText: { fontSize: 14, color: tokens.colors.textMuted, margin: '0 0 16px 0' },
     primaryBtn: {
       backgroundColor: tokens.colors.primary,
       color: '#ffffff',
@@ -163,10 +131,9 @@ export default function Dashboard() {
       width: '100%',
       border: 'none',
       cursor: 'pointer',
+      transition: 'background-color 120ms ease',
     },
-    primaryBtnHover: {
-      backgroundColor: tokens.colors.primaryHover,
-    },
+
     panel: {
       backgroundColor: tokens.colors.bgCard,
       padding: 24,
@@ -179,12 +146,7 @@ export default function Dashboard() {
       justifyContent: 'space-between',
       marginBottom: 16,
     },
-    panelTitle: {
-      fontSize: 18,
-      fontWeight: 700,
-      color: tokens.colors.text,
-      margin: 0,
-    },
+    panelTitle: { fontSize: 18, fontWeight: 700, color: tokens.colors.text, margin: 0 },
     linkBtn: {
       fontSize: 14,
       color: tokens.colors.primary,
@@ -192,35 +154,21 @@ export default function Dashboard() {
       border: 'none',
       cursor: 'pointer',
       textDecoration: 'underline',
+      padding: 0,
     },
-    selectableTile: {
-      border: `1px solid ${tokens.colors.border}`,
-      borderRadius: tokens.radiusSm,
-      padding: 16,
-      cursor: 'pointer',
-      transition: 'box-shadow 120ms ease',
-    },
-    selectableRow: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 8,
-      marginBottom: 4,
-    },
-    selectableDesc: {
-      fontSize: 14,
-      color: tokens.colors.textMuted,
-      margin: 0,
-    },
-    statusWrap: {
-      backgroundColor: tokens.colors.bgCard,
-      padding: 24,
-      borderRadius: tokens.radius,
-    },
+    statusWrap: { backgroundColor: tokens.colors.bgCard, padding: 24, borderRadius: tokens.radius },
   };
 
-  // kleine Hover-Helper
   const [hoverCard, setHoverCard] = useState(null);
-  const [hoverBtn, setHoverBtn] = useState(null);
+
+  // Zeilen nach gewählter Gruppe filtern (wenn Detail geöffnet)
+  const filteredRows = activeReport
+    ? statusData.filter(
+        (r) =>
+          String(r.kunde_id) === String(activeReport.kunde_id) &&
+          String(r.kundenrolle || '') === String(activeReport.kundenrolle || '')
+      )
+    : statusData;
 
   return (
     <div style={styles.page}>
@@ -243,8 +191,8 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* Tabs */}
       <div style={styles.container}>
+        {/* Tabs */}
         <div style={styles.tabs}>
           <button
             onClick={() => {
@@ -271,10 +219,7 @@ export default function Dashboard() {
           <div style={styles.cardGrid}>
             {/* Objektunterlagen */}
             <div
-              style={{
-                ...styles.card,
-                ...(hoverCard === 'objekt' ? styles.cardHover : {}),
-              }}
+              style={{ ...styles.card, ...(hoverCard === 'objekt' ? styles.cardHover : {}) }}
               onMouseEnter={() => setHoverCard('objekt')}
               onMouseLeave={() => setHoverCard(null)}
               onClick={() => setSelectedService('objektunterlagen')}
@@ -287,12 +232,9 @@ export default function Dashboard() {
                 Lassen Sie Ihre Objektunterlagen professionell prüfen und bewerten.
               </p>
               <button
-                style={{
-                  ...styles.primaryBtn,
-                  ...(hoverBtn === 'objekt' ? styles.primaryBtnHover : {}),
-                }}
-                onMouseEnter={() => setHoverBtn('objekt')}
-                onMouseLeave={() => setHoverBtn(null)}
+                style={styles.primaryBtn}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = tokens.colors.primaryHover)}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = tokens.colors.primary)}
               >
                 Auswählen
               </button>
@@ -300,10 +242,7 @@ export default function Dashboard() {
 
             {/* Bonitätsprüfung */}
             <div
-              style={{
-                ...styles.card,
-                ...(hoverCard === 'bonitaet' ? styles.cardHover : {}),
-              }}
+              style={{ ...styles.card, ...(hoverCard === 'bonitaet' ? styles.cardHover : {}) }}
               onMouseEnter={() => setHoverCard('bonitaet')}
               onMouseLeave={() => setHoverCard(null)}
               onClick={() => setSelectedService('bonitaet')}
@@ -312,16 +251,11 @@ export default function Dashboard() {
                 <FaUserCheck style={{ color: '#16a34a', fontSize: 20 }} />
                 <h2 style={styles.cardTitle}>Bonitätsprüfung</h2>
               </div>
-              <p style={styles.cardText}>
-                Führen Sie eine umfassende Bonitätsprüfung durch.
-              </p>
+              <p style={styles.cardText}>Führen Sie eine umfassende Bonitätsprüfung durch.</p>
               <button
-                style={{
-                  ...styles.primaryBtn,
-                  ...(hoverBtn === 'bonitaet' ? styles.primaryBtnHover : {}),
-                }}
-                onMouseEnter={() => setHoverBtn('bonitaet')}
-                onMouseLeave={() => setHoverBtn(null)}
+                style={styles.primaryBtn}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = tokens.colors.primaryHover)}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = tokens.colors.primary)}
               >
                 Auswählen
               </button>
@@ -347,39 +281,41 @@ export default function Dashboard() {
               }}
             >
               <div
-                style={styles.selectableTile}
-                onClick={() => setSubType('angestellter')}
-                onMouseEnter={(e) =>
-                  (e.currentTarget.style.boxShadow = '0 6px 18px rgba(0,0,0,0.08)')
-                }
+                style={{
+                  border: `1px solid ${tokens.colors.border}`,
+                  borderRadius: tokens.radiusSm,
+                  padding: 16,
+                  cursor: 'pointer',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.boxShadow = '0 6px 18px rgba(0,0,0,0.08)')}
                 onMouseLeave={(e) => (e.currentTarget.style.boxShadow = 'none')}
+                onClick={() => setSubType('angestellter')}
               >
-                <div style={styles.selectableRow}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                   <FaBuilding style={{ color: '#2563eb' }} />
-                  <p style={{ fontWeight: 600, color: tokens.colors.text, margin: 0 }}>
-                    Angestellter
-                  </p>
+                  <p style={{ fontWeight: 600, color: tokens.colors.text, margin: 0 }}>Angestellter</p>
                 </div>
-                <p style={styles.selectableDesc}>
+                <p style={{ fontSize: 14, color: tokens.colors.textMuted, margin: 0 }}>
                   Festes Anstellungsverhältnis (z. B. Gehaltsabrechnung)
                 </p>
               </div>
 
               <div
-                style={styles.selectableTile}
-                onClick={() => setSubType('selbstaendiger')}
-                onMouseEnter={(e) =>
-                  (e.currentTarget.style.boxShadow = '0 6px 18px rgba(0,0,0,0.08)')
-                }
+                style={{
+                  border: `1px solid ${tokens.colors.border}`,
+                  borderRadius: tokens.radiusSm,
+                  padding: 16,
+                  cursor: 'pointer',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.boxShadow = '0 6px 18px rgba(0,0,0,0.08)')}
                 onMouseLeave={(e) => (e.currentTarget.style.boxShadow = 'none')}
+                onClick={() => setSubType('selbstaendiger')}
               >
-                <div style={styles.selectableRow}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                   <FaUserCheck style={{ color: '#16a34a' }} />
-                  <p style={{ fontWeight: 600, color: tokens.colors.text, margin: 0 }}>
-                    Selbständiger
-                  </p>
+                  <p style={{ fontWeight: 600, color: tokens.colors.text, margin: 0 }}>Selbständiger</p>
                 </div>
-                <p style={styles.selectableDesc}>
+                <p style={{ fontSize: 14, color: tokens.colors.textMuted, margin: 0 }}>
                   Freiberuflich oder gewerblich tätig (z. B. BWA, EÜR)
                 </p>
               </div>
@@ -408,7 +344,32 @@ export default function Dashboard() {
         {/* Status-Tab */}
         {activeTab === 'history' && (
           <div style={styles.statusWrap}>
-            {loading ? <p>Lade Daten...</p> : <StatusTable data={statusData} />}
+            {loading ? (
+              <p>Lade Daten...</p>
+            ) : !activeReport ? (
+              // Übersichtskarten (immer zuerst)
+              <StatusOverview rows={statusData} onOpenDetail={(summary) => setActiveReport(summary)} />
+            ) : (
+              // Detailansicht (Checkliste)
+              <>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: 12,
+                  }}
+                >
+                  <h2 style={styles.panelTitle}>
+                    {activeReport.kunde_name} — {activeReport.kundenrolle || '—'}
+                  </h2>
+                  <button onClick={() => setActiveReport(null)} style={styles.linkBtn}>
+                    Zur Übersicht
+                  </button>
+                </div>
+                <StatusTable data={filteredRows} />
+              </>
+            )}
           </div>
         )}
       </div>
