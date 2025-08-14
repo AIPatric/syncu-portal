@@ -9,7 +9,7 @@ import {
   FaExclamationTriangle,
 } from 'react-icons/fa';
 
-// -------- Kleinere Helfer --------
+// -------- Helpers --------
 const isGehaltsnachweis = (row) => {
   const a = String(row?.dokument_name || '').toLowerCase();
   const b = String(row?.anzeige_name || '').toLowerCase();
@@ -21,7 +21,7 @@ const isSelbstauskunft = (row) => {
   return a.includes('selbstauskunft') || b.includes('selbst auskunft') || b.includes('selbst-auskunft');
 };
 
-// ---- DSGVO-konformer Download: signierte URL per API holen
+// DSGVO-konformer Download: signierte URL per API holen (120s)
 async function signedDownload(raw) {
   const res = await fetch(`/api/get-download-url?raw=${encodeURIComponent(raw)}`);
   const json = await res.json();
@@ -44,7 +44,20 @@ const styles = {
     fontSize: 12,
     cursor: 'pointer',
   }),
-  select: { padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8 },
+  select: {
+    padding: '8px 10px',
+    border: '1px solid #e5e7eb',
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    color: '#111',
+    fontSize: 14,
+    lineHeight: '20px',
+    appearance: 'none',
+    WebkitAppearance: 'none',
+    MozAppearance: 'none',
+    outline: 'none',
+    cursor: 'pointer',
+  },
   wrapper: { overflowX: 'auto' },
   table: {
     minWidth: '100%',
@@ -85,7 +98,7 @@ export default function StatusTable({ data }) {
   });
   const toggle = (k) => setFilter((f) => ({ ...f, [k]: !f[k] }));
 
-  // Sortierung via Header
+  // Sortierung via Header oder Dropdown
   const [sort, setSort] = useState({ key: 'dokument', dir: 'asc' }); // 'dokument' | 'status' | 'datum'
   const onSort = (key) =>
     setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
@@ -148,15 +161,13 @@ export default function StatusTable({ data }) {
         if (filter.mindestOffen && !(minSet && !minOk)) return false;
         if (filter.pflichtOffen && g.items.every((it) => !it.erforderlich || it.vorhanden)) return false;
         if (filter.withDownload && g.items.every((it) => !it.file_url)) return false;
-        // deepOpen/failed prüfen via Items
         if (filter.deepOpen && g.items.every((it) => !it.tiefergehende_pruefung || it.case_status)) return false;
         if (filter.deepFailed && g.items.every((it) => String(it.case_status || '').toLowerCase() !== 'failed')) return false;
         return true;
       }
-      // normale Zeilen
       const r = item.row;
       if (filter.pflichtOffen && !(r.erforderlich && !r.vorhanden)) return false;
-      if (filter.mindestOffen && !(r.mindestanzahl != null && !r.mindestanzahl_erfüllt && !r.mindestanzahl_erfuellt)) return false;
+      if (filter.mindestOffen && !(r.mindestanzahl != null && !(r.mindestanzahl_erfüllt || r.mindestanzahl_erfuellt))) return false;
       if (filter.deepOpen && !(r.tiefergehende_pruefung && !r.case_status)) return false;
       if (filter.deepFailed && !(String(r.case_status || '').toLowerCase() === 'failed')) return false;
       if (filter.withDownload && !r.file_url) return false;
@@ -164,7 +175,7 @@ export default function StatusTable({ data }) {
     });
   }, [renderList, filter]);
 
-  // Sortierung anwenden (nur für normale Zeilen + Gruppenoberzeilen)
+  // Sortierung anwenden
   const sorted = useMemo(() => {
     const arr = [...filtered];
     arr.sort((a, b) => {
@@ -174,7 +185,6 @@ export default function StatusTable({ data }) {
       const pickStatusWeight = (it) => {
         const r = it.type === 'gehalt' ? null : it.row;
         if (!r) return 99;
-        // Pflicht offen > Mindest offen > deep failed > vorhanden
         if (r.erforderlich && !r.vorhanden) return 0;
         if (r.mindestanzahl != null && !(r.mindestanzahl_erfüllt || r.mindestanzahl_erfuellt)) return 1;
         if (String(r.case_status || '').toLowerCase() === 'failed') return 2;
@@ -182,15 +192,9 @@ export default function StatusTable({ data }) {
       };
       const pickDate = (it) => (it.type === 'gehalt' ? 0 : new Date(it.row?.erkannt_am || 0).getTime());
 
-      if (sort.key === 'dokument') {
-        return dir * pickName(a).localeCompare(pickName(b));
-      }
-      if (sort.key === 'status') {
-        return dir * (pickStatusWeight(a) - pickStatusWeight(b));
-      }
-      if (sort.key === 'datum') {
-        return dir * (pickDate(a) - pickDate(b));
-      }
+      if (sort.key === 'dokument') return dir * pickName(a).localeCompare(pickName(b));
+      if (sort.key === 'status') return dir * (pickStatusWeight(a) - pickStatusWeight(b));
+      if (sort.key === 'datum') return dir * (pickDate(a) - pickDate(b));
       return 0;
     });
     return arr;
@@ -205,11 +209,16 @@ export default function StatusTable({ data }) {
         <button style={styles.chip(filter.deepOpen)} onClick={() => toggle('deepOpen')}>Deep offen</button>
         <button style={styles.chip(filter.deepFailed)} onClick={() => toggle('deepFailed')}>Deep failed</button>
         <button style={styles.chip(filter.withDownload)} onClick={() => toggle('withDownload')}>mit Download</button>
+
         <span style={{ marginLeft: 'auto', color: '#6b7280', fontSize: 12 }}>Sortieren nach:</span>
-        <select value={`${sort.key}_${sort.dir}`} onChange={(e) => {
-          const [k, d] = e.target.value.split('_');
-          setSort({ key: k, dir: d });
-        }} style={styles.select}>
+        <select
+          value={`${sort.key}_${sort.dir}`}
+          onChange={(e) => {
+            const [k, d] = e.target.value.split('_');
+            setSort({ key: k, dir: d });
+          }}
+          style={styles.select}
+        >
           <option value="dokument_asc">Dokument A–Z</option>
           <option value="dokument_desc">Dokument Z–A</option>
           <option value="status_asc">Status ↑</option>
@@ -345,7 +354,7 @@ export default function StatusTable({ data }) {
                           <span style={styles.warnWrap}><FaExclamationTriangle />{`${row?.anzahl_vorhanden || 0}/${row?.mindestanzahl}`}</span>
                       ) : <span>-</span>}
                     </td>
-                    <td style={styles.td}>{tiefergehend ? <span style={styles.blueText}>Ja</span> : <span>-</span>}</td>
+                    <td style={styles.td}>{tief ergehend ? <span style={styles.blueText}>Ja</span> : <span>-</span>}</td>
                     <td style={{ ...styles.td, ...styles.center }}>
                       {row?.file_url ? (
                         <button onClick={() => signedDownload(row.file_url)} style={styles.linkBtn} title="Download">

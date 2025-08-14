@@ -67,11 +67,7 @@ export default function StatusOverview({ rows, onOpenDetail }) {
     try { localStorage.setItem(LS_KEY, JSON.stringify(obj)); } catch {}
   };
   const hide = (key) => setHiddenPersist({ ...hidden, [key]: true });
-  const unhide = (key) => {
-    const n = { ...hidden };
-    delete n[key];
-    setHiddenPersist(n);
-  };
+  const unhide = (key) => { const n = { ...hidden }; delete n[key]; setHiddenPersist(n); };
 
   // ----- Suche/Sort/Filter -----
   const [search, setSearch] = useState('');
@@ -108,13 +104,35 @@ export default function StatusOverview({ rows, onOpenDetail }) {
   }, [summaries, search, sortBy, statusFilter, showHidden, hidden]);
 
   // ----- Styles -----
-  const styles = {
-    controls: { display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 },
-    input: { padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8, minWidth: 220 },
-    select: { padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8 },
+  const card = {
+    controls: { display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' },
+    input: {
+      padding: '8px 10px',
+      border: '1px solid #e5e7eb',
+      borderRadius: 8,
+      minWidth: 220,
+      backgroundColor: '#fff',
+      color: '#111',
+      fontSize: 14,
+      outline: 'none',
+    },
+    select: {
+      padding: '8px 10px',
+      border: '1px solid #e5e7eb',
+      borderRadius: 8,
+      backgroundColor: '#fff',
+      color: '#111',
+      fontSize: 14,
+      lineHeight: '20px',
+      appearance: 'none',
+      WebkitAppearance: 'none',
+      MozAppearance: 'none',
+      outline: 'none',
+      cursor: 'pointer',
+    },
     row: {
       display: 'grid',
-      gridTemplateColumns: 'minmax(220px, 1fr) minmax(160px, 220px) 1fr 140px 110px 140px',
+      gridTemplateColumns: 'minmax(220px, 1fr) minmax(160px, 220px) 1fr 140px 150px 140px',
       gap: 12,
       alignItems: 'center',
       padding: 12,
@@ -131,30 +149,30 @@ export default function StatusOverview({ rows, onOpenDetail }) {
   };
   const pillFor = (status) => {
     switch (status) {
-      case 'Abgeschlossen': return styles.pill('#dcfce7', '#16a34a');
-      case 'Fehlgeschlagen': return styles.pill('#fee2e2', '#dc2626');
-      case 'In Bearbeitung': return styles.pill('#fef3c7', '#f59e0b');
-      default: return styles.pill('#dbeafe', '#2563eb');
+      case 'Abgeschlossen': return card.pill('#dcfce7', '#16a34a');
+      case 'Fehlgeschlagen': return card.pill('#fee2e2', '#dc2626');
+      case 'In Bearbeitung': return card.pill('#fef3c7', '#f59e0b');
+      default: return card.pill('#dbeafe', '#2563eb');
     }
   };
 
   return (
     <div>
-      <div style={styles.controls}>
+      <div style={card.controls}>
         <input
           placeholder="Suchen…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          style={styles.input}
+          style={card.input}
         />
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={styles.select}>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={card.select}>
           <option value="all">Alle Status</option>
           <option value="offen">Wartet auf Upload</option>
           <option value="bearbeitung">In Bearbeitung</option>
           <option value="fertig">Abgeschlossen</option>
           <option value="fehl">Fehlgeschlagen</option>
         </select>
-        <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={styles.select}>
+        <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={card.select}>
           <option value="last_desc">Neueste zuerst</option>
           <option value="progress_desc">Fortschritt absteigend</option>
           <option value="name_asc">Name A–Z</option>
@@ -171,33 +189,33 @@ export default function StatusOverview({ rows, onOpenDetail }) {
 
       <div style={{ display: 'grid', gap: 12 }}>
         {/* Kopfzeile */}
-        <div style={{ ...styles.row, background: '#f9fafb' }}>
-          <div style={styles.header}>Kunde</div>
-          <div style={styles.header}>Rolle</div>
-          <div style={styles.header}>Fortschritt</div>
-          <div style={styles.header}>Status</div>
-          <div style={styles.header}>Letztes Update</div>
-          <div style={styles.header}></div>
+        <div style={{ ...card.row, background: '#f9fafb' }}>
+          <div style={card.header}>Kunde</div>
+          <div style={card.header}>Rolle</div>
+          <div style={card.header}>Fortschritt</div>
+          <div style={card.header}>Status</div>
+          <div style={card.header}>Letztes Update</div>
+          <div style={card.header}></div>
         </div>
 
         {filtered.map((s) => (
-          <div key={s.key} style={styles.row}>
+          <div key={s.key} style={card.row}>
             <div>
               <span style={{ fontWeight: 700, color: '#111' }}>{s.kunde_name}</span>
             </div>
             <div>{s.kundenrolle || '—'}</div>
             <div>
-              <div style={styles.barWrap}><div style={styles.bar(s.progress)} /></div>
-              <div style={styles.sub}>Fortschritt {s.progress}% • Pflicht {s.reqOk}/{s.reqTotal}{s.minTotal > 0 ? ` • Mindest ${s.minOk}/${s.minTotal}` : ''}{s.deepTotal > 0 ? ` • Deep ${s.deepOk}/${s.deepTotal}` : ''}</div>
+              <div style={card.barWrap}><div style={card.bar(s.progress)} /></div>
+              <div style={card.sub}>Fortschritt {s.progress}% • Pflicht {s.reqOk}/{s.reqTotal}{s.minTotal > 0 ? ` • Mindest ${s.minOk}/${s.minTotal}` : ''}{s.deepTotal > 0 ? ` • Deep ${s.deepOk}/${s.deepTotal}` : ''}</div>
             </div>
             <div><span style={pillFor(s.status)}>{s.status}</span></div>
             <div>{s.last ? new Date(s.last).toLocaleString('de-DE') : '—'}</div>
             <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-              <button style={styles.btnLink} onClick={() => onOpenDetail(s)}>Öffnen</button>
+              <button style={card.btnLink} onClick={() => onOpenDetail(s)}>Öffnen</button>
               {!hidden[s.key] ? (
-                <button style={styles.btnLink} onClick={() => hide(s.key)}>Ausblenden</button>
+                <button style={card.btnLink} onClick={() => hide(s.key)}>Ausblenden</button>
               ) : (
-                <button style={styles.btnLink} onClick={() => unhide(s.key)}>Einblenden</button>
+                <button style={card.btnLink} onClick={() => unhide(s.key)}>Einblenden</button>
               )}
             </div>
           </div>
