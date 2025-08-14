@@ -1,110 +1,208 @@
 // components/StatusOverview.js
-import { FaUserCheck } from 'react-icons/fa';
+import { useEffect, useMemo, useState } from 'react';
 
 export default function StatusOverview({ rows, onOpenDetail }) {
-  // Gruppierung: kunde_id + kundenrolle
-  const grouped = rows.reduce((acc, r) => {
-    const key = `${r.kunde_id}::${r.kundenrolle || ''}`;
-    acc[key] = acc[key] || {
-      kunde_id: r.kunde_id,
-      kunde_name: r.kunde_name,
-      kundenrolle: r.kundenrolle,
-      reqTotal: 0, reqOk: 0,
-      minTotal: 0, minOk: 0,
-      deepTotal: 0, deepOk: 0, deepFailed: 0,
-      anyUpload: false,
-      letztes_update: r.letztes_update || r.erkannt_am || null,
-    };
-    const g = acc[key];
-    if (r.erforderlich) { g.reqTotal++; if (r.vorhanden) g.reqOk++; }
-    if (r.mindestanzahl != null) { g.minTotal++; if (r.mindestanzahl_erfüllt || r.mindestanzahl_erfuellt) g.minOk++; }
-    if (r.tiefergehende_pruefung) {
-      g.deepTotal++;
-      const s = String(r.case_status || '').toLowerCase();
-      if (s === 'passed') g.deepOk++;
-      if (s === 'failed') g.deepFailed++;
+  // Aggregation je (kunde_id + kundenrolle)
+  const grouped = useMemo(() => {
+    const acc = {};
+    for (const r of rows) {
+      const key = `${r.kunde_id}::${r.kundenrolle || ''}`;
+      if (!acc[key]) {
+        acc[key] = {
+          key,
+          kunde_id: r.kunde_id,
+          kunde_name: r.kunde_name,
+          kundenrolle: r.kundenrolle,
+          reqTotal: 0, reqOk: 0,
+          minTotal: 0, minOk: 0,
+          deepTotal: 0, deepOk: 0, deepFailed: 0,
+          anyUpload: false,
+          last: r.letztes_update || r.erkannt_am || null,
+        };
+      }
+      const g = acc[key];
+      if (r.erforderlich) { g.reqTotal++; if (r.vorhanden) g.reqOk++; }
+      if (r.mindestanzahl != null) { g.minTotal++; if (r.mindestanzahl_erfüllt || r.mindestanzahl_erfuellt) g.minOk++; }
+      if (r.tiefergehende_pruefung) {
+        g.deepTotal++;
+        const s = String(r.case_status || '').toLowerCase();
+        if (s === 'passed') g.deepOk++;
+        if (s === 'failed') g.deepFailed++;
+      }
+      if (r.file_url) g.anyUpload = true;
+      if (r.erkannt_am && (!g.last || new Date(r.erkannt_am) > new Date(g.last))) g.last = r.erkannt_am;
     }
-    if (r.file_url) g.anyUpload = true;
-    return acc;
-  }, {});
+    return Object.values(acc);
+  }, [rows]);
 
-  const computeProgress = (s) => {
+  // Fortschritt & Status
+  const enrich = (g) => {
     const w = { req: 0.6, min: 0.25, deep: 0.15 };
-    const active = [];
-    if (s.reqTotal) active.push('req');
-    if (s.minTotal) active.push('min');
-    if (s.deepTotal) active.push('deep');
+    const active = ['req', 'min', 'deep'].filter(k => (k === 'req' ? g.reqTotal : k === 'min' ? g.minTotal : g.deepTotal));
     const sum = active.reduce((a, k) => a + w[k], 0) || 1;
     const part = (ok, total, k) => (total ? (ok / total) * (w[k] / sum) : 0);
-    return Math.round(100 * (part(s.reqOk, s.reqTotal, 'req') + part(s.minOk, s.minTotal, 'min') + part(s.deepOk, s.deepTotal, 'deep')));
+    const progress = Math.round(100 * (part(g.reqOk, g.reqTotal, 'req') + part(g.minOk, g.minTotal, 'min') + part(g.deepOk, g.deepTotal, 'deep')));
+    let status = 'Wartet auf Upload';
+    if (g.deepFailed > 0) status = 'Fehlgeschlagen';
+    else if (progress === 100) status = 'Abgeschlossen';
+    else if (g.anyUpload) status = 'In Bearbeitung';
+    return { ...g, progress, status };
   };
 
-  const deriveStatus = (s, p) => {
-    if (s.deepFailed > 0) return 'Fehlgeschlagen';
-    if (p === 100) return 'Abgeschlossen';
-    if (s.anyUpload) return 'In Bearbeitung';
-    return 'Wartet auf Upload';
+  const summaries = useMemo(() => grouped.map(enrich), [grouped]);
+
+  // ----- Ausblenden (localStorage) -----
+  const LS_KEY = 'report_hidden_v1';
+  const [hidden, setHidden] = useState({});
+  const [showHidden, setShowHidden] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (raw) setHidden(JSON.parse(raw));
+    } catch {}
+  }, []);
+  const setHiddenPersist = (obj) => {
+    setHidden(obj);
+    try { localStorage.setItem(LS_KEY, JSON.stringify(obj)); } catch {}
+  };
+  const hide = (key) => setHiddenPersist({ ...hidden, [key]: true });
+  const unhide = (key) => {
+    const n = { ...hidden };
+    delete n[key];
+    setHiddenPersist(n);
   };
 
-  const summaries = Object.values(grouped).map((s) => {
-    const progress = computeProgress(s);
-    const status = deriveStatus(s, progress);
-    return { ...s, progress, status };
-  });
+  // ----- Suche/Sort/Filter -----
+  const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState('last_desc'); // name_asc | progress_desc | last_desc
+  const [statusFilter, setStatusFilter] = useState('all'); // all | offen | bearbeitung | fertig | fehl
 
-  const card = {
-    base: {
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let arr = summaries.filter(s => {
+      if (!showHidden && hidden[s.key]) return false;
+      if (q) {
+        const str = `${s.kunde_name} ${s.kundenrolle || ''}`.toLowerCase();
+        if (!str.includes(q)) return false;
+      }
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'offen' && s.status !== 'Wartet auf Upload') return false;
+        if (statusFilter === 'bearbeitung' && s.status !== 'In Bearbeitung') return false;
+        if (statusFilter === 'fertig' && s.status !== 'Abgeschlossen') return false;
+        if (statusFilter === 'fehl' && s.status !== 'Fehlgeschlagen') return false;
+      }
+      return true;
+    });
+
+    arr.sort((a, b) => {
+      switch (sortBy) {
+        case 'name_asc': return (a.kunde_name || '').localeCompare(b.kunde_name || '');
+        case 'progress_desc': return b.progress - a.progress;
+        case 'last_desc':
+        default:
+          return new Date(b.last || 0) - new Date(a.last || 0);
+      }
+    });
+    return arr;
+  }, [summaries, search, sortBy, statusFilter, showHidden, hidden]);
+
+  // ----- Styles -----
+  const styles = {
+    controls: { display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 },
+    input: { padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8, minWidth: 220 },
+    select: { padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8 },
+    row: {
+      display: 'grid',
+      gridTemplateColumns: 'minmax(220px, 1fr) minmax(160px, 220px) 1fr 140px 110px 140px',
+      gap: 12,
+      alignItems: 'center',
+      padding: 12,
       background: '#fff',
       border: '1px solid #e5e7eb',
       borderRadius: 12,
-      padding: 16,
-      boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-      cursor: 'pointer',
     },
-    row: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-    left: { display: 'flex', alignItems: 'center', gap: 12 },
-    title: { margin: 0, fontWeight: 700, color: '#111', fontSize: 16 },
-    sub: { margin: 0, color: '#6b7280', fontSize: 13 },
-    pill: (bg, fg) => ({ padding: '4px 10px', borderRadius: 999, background: bg, color: fg, fontWeight: 700, fontSize: 12 }),
-    barWrap: { height: 10, background: '#e5e7eb', borderRadius: 999, overflow: 'hidden', marginTop: 12 },
+    header: { fontWeight: 700, color: '#111' },
+    sub: { color: '#6b7280', fontSize: 12, marginLeft: 6 },
+    barWrap: { height: 10, background: '#e5e7eb', borderRadius: 999, overflow: 'hidden' },
     bar: (p) => ({ width: `${p}%`, height: '100%', background: '#2d9cdb' }),
-    meta: { display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 12, color: '#6b7280' },
+    pill: (bg, fg) => ({ padding: '4px 10px', borderRadius: 999, background: bg, color: fg, fontWeight: 700, fontSize: 12, textAlign: 'center' }),
+    btnLink: { color: '#2563eb', background: 'transparent', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 },
   };
-
   const pillFor = (status) => {
     switch (status) {
-      case 'Abgeschlossen': return card.pill('#dcfce7', '#16a34a');
-      case 'Fehlgeschlagen': return card.pill('#fee2e2', '#dc2626');
-      case 'In Bearbeitung': return card.pill('#fef3c7', '#f59e0b');
-      default: return card.pill('#dbeafe', '#2563eb');
+      case 'Abgeschlossen': return styles.pill('#dcfce7', '#16a34a');
+      case 'Fehlgeschlagen': return styles.pill('#fee2e2', '#dc2626');
+      case 'In Bearbeitung': return styles.pill('#fef3c7', '#f59e0b');
+      default: return styles.pill('#dbeafe', '#2563eb');
     }
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(340px,1fr))', gap: 16 }}>
-      {summaries.map((s, i) => (
-        <div key={i} style={card.base} onClick={() => onOpenDetail(s)}>
-          <div style={card.row}>
-            <div style={card.left}>
-              <FaUserCheck style={{ color: '#16a34a' }} />
-              <div>
-                <p style={card.title}>{s.kunde_name}</p>
-                <p style={card.sub}>{s.kundenrolle || '—'}</p>
-              </div>
-            </div>
-            <span style={pillFor(s.status)}>{s.status}</span>
-          </div>
-          <div style={card.barWrap}><div style={card.bar(s.progress)} /></div>
-          <div style={card.meta}>
-            <span>Fortschritt {s.progress}%</span>
-            <span>
-              Pflicht {s.reqOk}/{s.reqTotal}
-              {s.minTotal > 0 && ` • Mindest ${s.minOk}/${s.minTotal}`}
-              {s.deepTotal > 0 && ` • Deep ${s.deepOk}/${s.deepTotal}`}
-            </span>
-          </div>
+    <div>
+      <div style={styles.controls}>
+        <input
+          placeholder="Suchen…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={styles.input}
+        />
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={styles.select}>
+          <option value="all">Alle Status</option>
+          <option value="offen">Wartet auf Upload</option>
+          <option value="bearbeitung">In Bearbeitung</option>
+          <option value="fertig">Abgeschlossen</option>
+          <option value="fehl">Fehlgeschlagen</option>
+        </select>
+        <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={styles.select}>
+          <option value="last_desc">Neueste zuerst</option>
+          <option value="progress_desc">Fortschritt absteigend</option>
+          <option value="name_asc">Name A–Z</option>
+        </select>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <input
+            type="checkbox"
+            checked={showHidden}
+            onChange={(e) => setShowHidden(e.target.checked)}
+          />
+          Ausgeblendete anzeigen
+        </label>
+      </div>
+
+      <div style={{ display: 'grid', gap: 12 }}>
+        {/* Kopfzeile */}
+        <div style={{ ...styles.row, background: '#f9fafb' }}>
+          <div style={styles.header}>Kunde</div>
+          <div style={styles.header}>Rolle</div>
+          <div style={styles.header}>Fortschritt</div>
+          <div style={styles.header}>Status</div>
+          <div style={styles.header}>Letztes Update</div>
+          <div style={styles.header}></div>
         </div>
-      ))}
+
+        {filtered.map((s) => (
+          <div key={s.key} style={styles.row}>
+            <div>
+              <span style={{ fontWeight: 700, color: '#111' }}>{s.kunde_name}</span>
+            </div>
+            <div>{s.kundenrolle || '—'}</div>
+            <div>
+              <div style={styles.barWrap}><div style={styles.bar(s.progress)} /></div>
+              <div style={styles.sub}>Fortschritt {s.progress}% • Pflicht {s.reqOk}/{s.reqTotal}{s.minTotal > 0 ? ` • Mindest ${s.minOk}/${s.minTotal}` : ''}{s.deepTotal > 0 ? ` • Deep ${s.deepOk}/${s.deepTotal}` : ''}</div>
+            </div>
+            <div><span style={pillFor(s.status)}>{s.status}</span></div>
+            <div>{s.last ? new Date(s.last).toLocaleString('de-DE') : '—'}</div>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button style={styles.btnLink} onClick={() => onOpenDetail(s)}>Öffnen</button>
+              {!hidden[s.key] ? (
+                <button style={styles.btnLink} onClick={() => hide(s.key)}>Ausblenden</button>
+              ) : (
+                <button style={styles.btnLink} onClick={() => unhide(s.key)}>Einblenden</button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
