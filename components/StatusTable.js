@@ -354,7 +354,9 @@ export default function StatusTable({ data }) {
                           <span style={styles.warnWrap}><FaExclamationTriangle />{`${row?.anzahl_vorhanden || 0}/${row?.mindestanzahl}`}</span>
                       ) : <span>-</span>}
                     </td>
-                    <td style={styles.td}>{tief ergehend ? <span style={styles.blueText}>Ja</span> : <span>-</span>}</td>
+                    <td style={styles.td}>
+                      {tiefergehend ? <span style={styles.blueText}>Ja</span> : <span>-</span>}
+                          </td>
                     <td style={{ ...styles.td, ...styles.center }}>
                       {row?.file_url ? (
                         <button onClick={() => signedDownload(row.file_url)} style={styles.linkBtn} title="Download">
