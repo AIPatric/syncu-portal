@@ -167,7 +167,7 @@ export default function StatusOverview({ rows, onOpenDetail }) {
     barWrap: { height: 10, background: '#e5e7eb', borderRadius: 999, overflow: 'hidden' },
     bar: (p) => ({ width: `${p}%`, height: '100%', background: '#2d9cdb' }),
     pill: (bg, fg) => ({ padding: '4px 10px', borderRadius: 999, background: bg, color: fg, fontWeight: 700, fontSize: 12, textAlign: 'center' }),
-    btnLink: { color: '#2563eb', background: 'transparent', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 },
+    btnLink: { color: '#2563eb', background: 'transparent', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0, fontSize: 12 },
     meta: { color: '#111', fontSize: 14, fontWeight: 400 },
   };
   const pillFor = (status, manual) => {
