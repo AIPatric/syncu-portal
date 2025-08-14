@@ -35,8 +35,8 @@ export default function StatusOverview({ rows, onOpenDetail }) {
     return Object.values(acc);
   }, [rows]);
 
-  // Fortschritt & Status
-  const enrich = (g) => {
+  // Fortschritt & Basis-Status
+  const calcProgressStatus = (g) => {
     const w = { req: 0.6, min: 0.25, deep: 0.15 };
     const active = ['req', 'min', 'deep'].filter(k => (k === 'req' ? g.reqTotal : k === 'min' ? g.minTotal : g.deepTotal));
     const sum = active.reduce((a, k) => a + w[k], 0) || 1;
@@ -46,33 +46,54 @@ export default function StatusOverview({ rows, onOpenDetail }) {
     if (g.deepFailed > 0) status = 'Fehlgeschlagen';
     else if (progress === 100) status = 'Abgeschlossen';
     else if (g.anyUpload) status = 'In Bearbeitung';
-    return { ...g, progress, status };
+    return { progress, status };
   };
 
-  const summaries = useMemo(() => grouped.map(enrich), [grouped]);
+  // ----- LocalStorage: Ausblenden & Manuell abgeschlossen -----
+  const LS_HIDE = 'report_hidden_v1';
+  const LS_MANUAL_DONE = 'report_manual_done_v1';
 
-  // ----- Ausblenden (localStorage) -----
-  const LS_KEY = 'report_hidden_v1';
   const [hidden, setHidden] = useState({});
+  const [manualDone, setManualDone] = useState({});
   const [showHidden, setShowHidden] = useState(false);
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) setHidden(JSON.parse(raw));
+      const h = localStorage.getItem(LS_HIDE);
+      if (h) setHidden(JSON.parse(h));
+      const m = localStorage.getItem(LS_MANUAL_DONE);
+      if (m) setManualDone(JSON.parse(m));
     } catch {}
   }, []);
-  const setHiddenPersist = (obj) => {
-    setHidden(obj);
-    try { localStorage.setItem(LS_KEY, JSON.stringify(obj)); } catch {}
+
+  const persist = (key, obj) => {
+    try { localStorage.setItem(key, JSON.stringify(obj)); } catch {}
   };
-  const hide = (key) => setHiddenPersist({ ...hidden, [key]: true });
-  const unhide = (key) => { const n = { ...hidden }; delete n[key]; setHiddenPersist(n); };
+  const hide = (key) => { const n = { ...hidden, [key]: true }; setHidden(n); persist(LS_HIDE, n); };
+  const unhide = (key) => { const n = { ...hidden }; delete n[key]; setHidden(n); persist(LS_HIDE, n); };
+
+  const markDone = (key) => { const n = { ...manualDone, [key]: { at: Date.now() } }; setManualDone(n); persist(LS_MANUAL_DONE, n); };
+  const undoDone = (key) => { const n = { ...manualDone }; delete n[key]; setManualDone(n); persist(LS_MANUAL_DONE, n); };
+
+  // Enriched Summaries + manuell überschreiben
+  const summaries = useMemo(() => {
+    return grouped.map((g) => {
+      const { progress, status } = calcProgressStatus(g);
+      const isManual = !!manualDone[g.key];
+      return {
+        ...g,
+        progress,
+        status: isManual ? 'Manuell abgeschlossen' : status,
+        manualDone: isManual,
+        manualAt: manualDone[g.key]?.at || null,
+      };
+    });
+  }, [grouped, manualDone]);
 
   // ----- Suche/Sort/Filter -----
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('last_desc'); // name_asc | progress_desc | last_desc
-  const [statusFilter, setStatusFilter] = useState('all'); // all | offen | bearbeitung | fertig | fehl
+  const [statusFilter, setStatusFilter] = useState('all'); // all | offen | bearbeitung | fertig | fehl | manuell
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -87,6 +108,7 @@ export default function StatusOverview({ rows, onOpenDetail }) {
         if (statusFilter === 'bearbeitung' && s.status !== 'In Bearbeitung') return false;
         if (statusFilter === 'fertig' && s.status !== 'Abgeschlossen') return false;
         if (statusFilter === 'fehl' && s.status !== 'Fehlgeschlagen') return false;
+        if (statusFilter === 'manuell' && s.status !== 'Manuell abgeschlossen') return false;
       }
       return true;
     });
@@ -132,7 +154,7 @@ export default function StatusOverview({ rows, onOpenDetail }) {
     },
     row: {
       display: 'grid',
-      gridTemplateColumns: 'minmax(220px, 1fr) minmax(160px, 220px) 1fr 140px 150px 140px',
+      gridTemplateColumns: 'minmax(220px, 1fr) minmax(160px, 220px) 1fr 180px 150px 220px',
       gap: 12,
       alignItems: 'center',
       padding: 12,
@@ -146,8 +168,10 @@ export default function StatusOverview({ rows, onOpenDetail }) {
     bar: (p) => ({ width: `${p}%`, height: '100%', background: '#2d9cdb' }),
     pill: (bg, fg) => ({ padding: '4px 10px', borderRadius: 999, background: bg, color: fg, fontWeight: 700, fontSize: 12, textAlign: 'center' }),
     btnLink: { color: '#2563eb', background: 'transparent', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 },
+    meta: { color: '#111', fontSize: 14, fontWeight: 400 },
   };
-  const pillFor = (status) => {
+  const pillFor = (status, manual) => {
+    if (manual) return card.pill('#e5e7eb', '#374151'); // neutral: „Manuell abgeschlossen“
     switch (status) {
       case 'Abgeschlossen': return card.pill('#dcfce7', '#16a34a');
       case 'Fehlgeschlagen': return card.pill('#fee2e2', '#dc2626');
@@ -171,6 +195,7 @@ export default function StatusOverview({ rows, onOpenDetail }) {
           <option value="bearbeitung">In Bearbeitung</option>
           <option value="fertig">Abgeschlossen</option>
           <option value="fehl">Fehlgeschlagen</option>
+          <option value="manuell">Manuell abgeschlossen</option>
         </select>
         <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={card.select}>
           <option value="last_desc">Neueste zuerst</option>
@@ -178,39 +203,16 @@ export default function StatusOverview({ rows, onOpenDetail }) {
           <option value="name_asc">Name A–Z</option>
         </select>
         <label
-  style={{
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 6,
-    cursor: 'pointer',
-    userSelect: 'none',
-  }}
->
-  <input
-    type="checkbox"
-    checked={showHidden}
-    onChange={(e) => setShowHidden(e.target.checked)}
-    style={{
-      width: 16,
-      height: 16,
-      margin: 0,
-      cursor: 'pointer',
-      accentColor: '#2563eb',     // Farbakzent
-      appearance: 'auto',         // überschreibt evtl. Tailwind-Resets
-      WebkitAppearance: 'auto',
-      MozAppearance: 'auto',
-    }}
-  />
-  <span
-    style={{
-      fontSize: 14,
-      lineHeight: '20px',
-      color: '#111111',
-    }}
-  >
-    Ausgeblendete anzeigen
-  </span>
-</label>
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', userSelect: 'none' }}
+        >
+          <input
+            type="checkbox"
+            checked={showHidden}
+            onChange={(e) => setShowHidden(e.target.checked)}
+            style={{ width: 16, height: 16, margin: 0, cursor: 'pointer', accentColor: '#2563eb' }}
+          />
+          <span style={{ fontSize: 14, lineHeight: '20px', color: '#111' }}>Ausgeblendete anzeigen</span>
+        </label>
       </div>
 
       <div style={{ display: 'grid', gap: 12 }}>
@@ -225,39 +227,53 @@ export default function StatusOverview({ rows, onOpenDetail }) {
         </div>
 
         {filtered.map((s) => (
-  <div key={s.key} style={card.row}>
-    <div>
-      <span style={{ fontWeight: 700, color: '#111' }}>{s.kunde_name}</span>
-    </div>
+          <div key={s.key} style={card.row}>
+            <div>
+              <span style={{ fontWeight: 700, color: '#111' }}>{s.kunde_name}</span>
+            </div>
 
-    <div style={{ color: '#111', fontSize: 14, fontWeight: 400 }}>
-      {s.kundenrolle || '—'}
-    </div>
+            <div style={card.meta}>
+              {s.kundenrolle || '—'}
+            </div>
 
-    <div>
-      <div style={card.barWrap}><div style={card.bar(s.progress)} /></div>
-      <div style={card.sub}>
-        Fortschritt {s.progress}% • Pflicht {s.reqOk}/{s.reqTotal}
-        {s.minTotal > 0 ? ` • Mindest ${s.minOk}/${s.minTotal}` : ''}
-        {s.deepTotal > 0 ? ` • Deep ${s.deepOk}/${s.deepTotal}` : ''}
-      </div>
-    </div>
+            <div>
+              <div style={card.barWrap}><div style={card.bar(s.progress)} /></div>
+              <div style={card.sub}>
+                Fortschritt {s.progress}% • Pflicht {s.reqOk}/{s.reqTotal}
+                {s.minTotal > 0 ? ` • Mindest ${s.minOk}/${s.minTotal}` : ''}
+                {s.deepTotal > 0 ? ` • Deep ${s.deepOk}/${s.deepTotal}` : ''}
+              </div>
+            </div>
 
-    <div><span style={pillFor(s.status)}>{s.status}</span></div>
+            <div>
+              <span style={pillFor(s.status, s.manualDone)}>{s.status}</span>
+              {s.manualDone && (
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
+                  gesetzt am {new Date(s.manualAt).toLocaleString('de-DE')}
+                </div>
+              )}
+            </div>
 
-    <div style={{ color: '#111', fontSize: 14, fontWeight: 400 }}>
-      {s.last ? new Date(s.last).toLocaleString('de-DE') : '—'}
-    </div>
+            <div style={card.meta}>
+              {s.last ? new Date(s.last).toLocaleString('de-DE') : '—'}
+            </div>
 
-    <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-      <button style={card.btnLink} onClick={() => onOpenDetail(s)}>Öffnen</button>
-      {!hidden[s.key] ? (
-        <button style={card.btnLink} onClick={() => hide(s.key)}>Ausblenden</button>
-      ) : (
-        <button style={card.btnLink} onClick={() => unhide(s.key)}>Einblenden</button>
-      )}
-    </div>
-  </div>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button style={card.btnLink} onClick={() => onOpenDetail(s)}>Öffnen</button>
+
+              {!s.manualDone ? (
+                <button style={card.btnLink} onClick={() => markDone(s.key)}>Als abgeschlossen markieren</button>
+              ) : (
+                <button style={card.btnLink} onClick={() => undoDone(s.key)}>Manuell-Status entfernen</button>
+              )}
+
+              {!hidden[s.key] ? (
+                <button style={card.btnLink} onClick={() => hide(s.key)}>Ausblenden</button>
+              ) : (
+                <button style={card.btnLink} onClick={() => unhide(s.key)}>Einblenden</button>
+              )}
+            </div>
+          </div>
         ))}
       </div>
     </div>
