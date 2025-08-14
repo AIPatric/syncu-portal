@@ -177,14 +177,40 @@ export default function StatusOverview({ rows, onOpenDetail }) {
           <option value="progress_desc">Fortschritt absteigend</option>
           <option value="name_asc">Name A–Z</option>
         </select>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <input
-            type="checkbox"
-            checked={showHidden}
-            onChange={(e) => setShowHidden(e.target.checked)}
-          />
-          Ausgeblendete anzeigen
-        </label>
+        <label
+  style={{
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    cursor: 'pointer',
+    userSelect: 'none',
+  }}
+>
+  <input
+    type="checkbox"
+    checked={showHidden}
+    onChange={(e) => setShowHidden(e.target.checked)}
+    style={{
+      width: 16,
+      height: 16,
+      margin: 0,
+      cursor: 'pointer',
+      accentColor: '#2563eb',     // Farbakzent
+      appearance: 'auto',         // überschreibt evtl. Tailwind-Resets
+      WebkitAppearance: 'auto',
+      MozAppearance: 'auto',
+    }}
+  />
+  <span
+    style={{
+      fontSize: 14,
+      lineHeight: '20px',
+      color: '#111111',
+    }}
+  >
+    Ausgeblendete anzeigen
+  </span>
+</label>
       </div>
 
       <div style={{ display: 'grid', gap: 12 }}>
