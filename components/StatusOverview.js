@@ -225,26 +225,39 @@ export default function StatusOverview({ rows, onOpenDetail }) {
         </div>
 
         {filtered.map((s) => (
-          <div key={s.key} style={card.row}>
-            <div>
-              <span style={{ fontWeight: 700, color: '#111' }}>{s.kunde_name}</span>
-            </div>
-            <div>{s.kundenrolle || '—'}</div>
-            <div>
-              <div style={card.barWrap}><div style={card.bar(s.progress)} /></div>
-              <div style={card.sub}>Fortschritt {s.progress}% • Pflicht {s.reqOk}/{s.reqTotal}{s.minTotal > 0 ? ` • Mindest ${s.minOk}/${s.minTotal}` : ''}{s.deepTotal > 0 ? ` • Deep ${s.deepOk}/${s.deepTotal}` : ''}</div>
-            </div>
-            <div><span style={pillFor(s.status)}>{s.status}</span></div>
-            <div>{s.last ? new Date(s.last).toLocaleString('de-DE') : '—'}</div>
-            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-              <button style={card.btnLink} onClick={() => onOpenDetail(s)}>Öffnen</button>
-              {!hidden[s.key] ? (
-                <button style={card.btnLink} onClick={() => hide(s.key)}>Ausblenden</button>
-              ) : (
-                <button style={card.btnLink} onClick={() => unhide(s.key)}>Einblenden</button>
-              )}
-            </div>
-          </div>
+  <div key={s.key} style={card.row}>
+    <div>
+      <span style={{ fontWeight: 700, color: '#111' }}>{s.kunde_name}</span>
+    </div>
+
+    <div style={{ color: '#111', fontSize: 14, fontWeight: 400 }}>
+      {s.kundenrolle || '—'}
+    </div>
+
+    <div>
+      <div style={card.barWrap}><div style={card.bar(s.progress)} /></div>
+      <div style={card.sub}>
+        Fortschritt {s.progress}% • Pflicht {s.reqOk}/{s.reqTotal}
+        {s.minTotal > 0 ? ` • Mindest ${s.minOk}/${s.minTotal}` : ''}
+        {s.deepTotal > 0 ? ` • Deep ${s.deepOk}/${s.deepTotal}` : ''}
+      </div>
+    </div>
+
+    <div><span style={pillFor(s.status)}>{s.status}</span></div>
+
+    <div style={{ color: '#111', fontSize: 14, fontWeight: 400 }}>
+      {s.last ? new Date(s.last).toLocaleString('de-DE') : '—'}
+    </div>
+
+    <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+      <button style={card.btnLink} onClick={() => onOpenDetail(s)}>Öffnen</button>
+      {!hidden[s.key] ? (
+        <button style={card.btnLink} onClick={() => hide(s.key)}>Ausblenden</button>
+      ) : (
+        <button style={card.btnLink} onClick={() => unhide(s.key)}>Einblenden</button>
+      )}
+    </div>
+  </div>
         ))}
       </div>
     </div>
