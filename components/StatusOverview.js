@@ -17,7 +17,7 @@ export default function StatusOverview({ rows, onOpenDetail }) {
           minTotal: 0, minOk: 0,
           deepTotal: 0, deepOk: 0, deepFailed: 0,
           anyUpload: false,
-          last: r.letztes_update || r.erkannt_am || null,
+          last: r.letztes_update || r.erkannt_am || r.hochgeladen_am || r.case_updated_at || null,
         };
       }
       const g = acc[key];
@@ -30,22 +30,34 @@ export default function StatusOverview({ rows, onOpenDetail }) {
         if (s === 'failed') g.deepFailed++;
       }
       if (r.file_url) g.anyUpload = true;
-      if (r.erkannt_am && (!g.last || new Date(r.erkannt_am) > new Date(g.last))) g.last = r.erkannt_am;
+
+      const cand = r.letztes_update || r.erkannt_am || r.hochgeladen_am || r.case_updated_at || null;
+      if (cand && (!g.last || new Date(cand) > new Date(g.last))) g.last = cand;
     }
     return Object.values(acc);
   }, [rows]);
 
-  // Fortschritt & Basis-Status
+  // Fortschritt (für Balken) + Status (explizite Erfüllungslogik)
   const calcProgressStatus = (g) => {
+    // Progress für die Anzeige (gewichtete Mischung bleibt)
     const w = { req: 0.6, min: 0.25, deep: 0.15 };
     const active = ['req', 'min', 'deep'].filter(k => (k === 'req' ? g.reqTotal : k === 'min' ? g.minTotal : g.deepTotal));
     const sum = active.reduce((a, k) => a + w[k], 0) || 1;
     const part = (ok, total, k) => (total ? (ok / total) * (w[k] / sum) : 0);
-    const progress = Math.round(100 * (part(g.reqOk, g.reqTotal, 'req') + part(g.minOk, g.minTotal, 'min') + part(g.deepOk, g.deepTotal, 'deep')));
+    const progress = Math.round(
+      100 * (part(g.reqOk, g.reqTotal, 'req') + part(g.minOk, g.minTotal, 'min') + part(g.deepOk, g.deepTotal, 'deep'))
+    );
+
+    // Status **explizit** anhand vollständiger Erfüllung
+    const allReqOk = g.reqTotal === 0 || g.reqOk === g.reqTotal;
+    const allMinOk = g.minTotal === 0 || g.minOk === g.minTotal;
+    const allDeepOk = g.deepTotal === 0 || (g.deepOk === g.deepTotal && g.deepFailed === 0);
+
     let status = 'Wartet auf Upload';
     if (g.deepFailed > 0) status = 'Fehlgeschlagen';
-    else if (progress === 100) status = 'Abgeschlossen';
+    else if (allReqOk && allMinOk && allDeepOk) status = 'Abgeschlossen';
     else if (g.anyUpload) status = 'In Bearbeitung';
+
     return { progress, status };
   };
 

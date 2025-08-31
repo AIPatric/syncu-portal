@@ -18,7 +18,12 @@ const isGehaltsnachweis = (row) => {
 const isSelbstauskunft = (row) => {
   const a = String(row?.dokument_name || '').toLowerCase();
   const b = String(row?.anzeige_name || '').toLowerCase();
-  return a.includes('selbstauskunft') || b.includes('selbst auskunft') || b.includes('selbst-auskunft');
+  return (
+    a.includes('selbstauskunft') ||
+    b.includes('selbstauskunft') ||
+    b.includes('selbst auskunft') ||
+    b.includes('selbst-auskunft')
+  );
 };
 
 // DSGVO-konformer Download: signierte URL per API holen (120s)
@@ -99,7 +104,8 @@ export default function StatusTable({ data }) {
   const toggle = (k) => setFilter((f) => ({ ...f, [k]: !f[k] }));
 
   // Sortierung via Header oder Dropdown
-  const [sort, setSort] = useState({ key: 'dokument', dir: 'asc' }); // 'dokument' | 'status' | 'datum'
+  // key: 'kunde' | 'rolle' | 'dokument' | 'status' | 'datum'
+  const [sort, setSort] = useState({ key: 'dokument', dir: 'asc' });
   const onSort = (key) =>
     setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
 
@@ -178,21 +184,49 @@ export default function StatusTable({ data }) {
   // Sortierung anwenden
   const sorted = useMemo(() => {
     const arr = [...filtered];
-    arr.sort((a, b) => {
-      const dir = sort.dir === 'asc' ? 1 : -1;
-      const pickName = (it) =>
-        it.type === 'gehalt' ? 'Gehaltsnachweise' : (it.row?.anzeige_name || it.row?.dokument_name || '');
-      const pickStatusWeight = (it) => {
-        const r = it.type === 'gehalt' ? null : it.row;
-        if (!r) return 99;
-        if (r.erforderlich && !r.vorhanden) return 0;
-        if (r.mindestanzahl != null && !(r.mindestanzahl_erfüllt || r.mindestanzahl_erfuellt)) return 1;
-        if (String(r.case_status || '').toLowerCase() === 'failed') return 2;
-        return 3;
-      };
-      const pickDate = (it) => (it.type === 'gehalt' ? 0 : new Date(it.row?.erkannt_am || 0).getTime());
+    const dir = sort.dir === 'asc' ? 1 : -1;
 
-      if (sort.key === 'dokument') return dir * pickName(a).localeCompare(pickName(b));
+    const text = (v) => (v || '').toString().toLowerCase();
+
+    const pickName = (it) =>
+      it.type === 'gehalt'
+        ? 'gehaltsnachweise'
+        : (it.row?.anzeige_name || it.row?.dokument_name || '');
+
+    const pickKunde = (it) =>
+      it.type === 'gehalt' ? (it.group?.kunde_name || '') : (it.row?.kunde_name || '');
+
+    const pickRolle = (it) =>
+      it.type === 'gehalt' ? (it.group?.kundenrolle || '') : (it.row?.kundenrolle || '');
+
+    const pickStatusWeight = (it) => {
+      const r = it.type === 'gehalt' ? null : it.row;
+      if (!r) {
+        // gruppierte Zeile: gewichte nach Mindestanzahl + Vorhanden summiert
+        const g = it.group;
+        if (!g) return 99;
+        const minSet = Number.isFinite(g.mindestanzahl);
+        const minOk = minSet ? g.vorhandenCount >= g.mindestanzahl : true;
+        if (!minOk) return 1; // Mindest nicht erfüllt
+        return 3; // ok
+      }
+      if (r.erforderlich && !r.vorhanden) return 0;
+      if (r.mindestanzahl != null && !(r.mindestanzahl_erfüllt || r.mindestanzahl_erfuellt)) return 1;
+      if (String(r.case_status || '').toLowerCase() === 'failed') return 2;
+      return 3;
+    };
+
+    const pickDate = (it) => {
+      const r = it.type === 'gehalt' ? null : it.row;
+      const base =
+        (r?.letztes_update || r?.erkannt_am || r?.hochgeladen_am || r?.case_updated_at || 0);
+      return new Date(base || 0).getTime();
+    };
+
+    arr.sort((a, b) => {
+      if (sort.key === 'kunde') return dir * text(pickKunde(a)).localeCompare(text(pickKunde(b)));
+      if (sort.key === 'rolle') return dir * text(pickRolle(a)).localeCompare(text(pickRolle(b)));
+      if (sort.key === 'dokument') return dir * text(pickName(a)).localeCompare(text(pickName(b)));
       if (sort.key === 'status') return dir * (pickStatusWeight(a) - pickStatusWeight(b));
       if (sort.key === 'datum') return dir * (pickDate(a) - pickDate(b));
       return 0;
@@ -219,6 +253,10 @@ export default function StatusTable({ data }) {
           }}
           style={styles.select}
         >
+          <option value="kunde_asc">Kunde A–Z</option>
+          <option value="kunde_desc">Kunde Z–A</option>
+          <option value="rolle_asc">Rolle A–Z</option>
+          <option value="rolle_desc">Rolle Z–A</option>
           <option value="dokument_asc">Dokument A–Z</option>
           <option value="dokument_desc">Dokument Z–A</option>
           <option value="status_asc">Status ↑</option>
@@ -232,14 +270,14 @@ export default function StatusTable({ data }) {
         <table style={styles.table}>
           <thead>
             <tr style={styles.theadTr}>
-              <th style={styles.th} onClick={() => onSort('dokument')}>Kunde</th>
-              <th style={styles.th} onClick={() => onSort('dokument')}>Rolle</th>
+              <th style={styles.th} onClick={() => onSort('kunde')}>Kunde</th>
+              <th style={styles.th} onClick={() => onSort('rolle')}>Rolle</th>
               <th style={styles.th} onClick={() => onSort('dokument')}>Dokument / Anzeigename</th>
               <th style={styles.th} onClick={() => onSort('status')}>Pflicht</th>
               <th style={styles.th} onClick={() => onSort('status')}>Vorhanden</th>
               <th style={styles.th}>Mindestanzahl</th>
               <th style={styles.th}>Tiefergehende Prüfung</th>
-              <th style={styles.th}>Download</th>
+              <th style={styles.th} onClick={() => onSort('datum')}>Download</th>
               <th style={styles.th}></th>
             </tr>
           </thead>
@@ -356,7 +394,7 @@ export default function StatusTable({ data }) {
                     </td>
                     <td style={styles.td}>
                       {tiefergehend ? <span style={styles.blueText}>Ja</span> : <span>-</span>}
-                          </td>
+                    </td>
                     <td style={{ ...styles.td, ...styles.center }}>
                       {row?.file_url ? (
                         <button onClick={() => signedDownload(row.file_url)} style={styles.linkBtn} title="Download">
