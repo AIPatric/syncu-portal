@@ -38,7 +38,9 @@ const styles = {
     fontSize: 12, cursor: 'pointer',
   }),
   select: {
-    padding: '8px 10px', border: '1px solid '#e5e7eb'', borderRadius: 8,
+    padding: '8px 10px',
+    border: '1px solid #e5e7eb', // <- fix
+    borderRadius: 8,
     backgroundColor: '#fff', color: '#111', fontSize: 14, lineHeight: '20px',
     appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none', outline: 'none', cursor: 'pointer',
   },
