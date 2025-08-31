@@ -1,8 +1,7 @@
 // pages/Dashboard.js
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Image from 'next/image';
-import { useRouter } from 'next/router';
-import { FaFileAlt, FaUserCheck, FaBuilding, FaCheckCircle, FaTimesCircle } from 'react-icons/fa';
+import { FaFileAlt, FaUserCheck, FaBuilding } from 'react-icons/fa';
 
 import UploadForm from '../components/UploadForm';
 import StatusTable from '../components/StatusTable';
@@ -28,7 +27,6 @@ const tokens = {
 };
 
 export default function Dashboard() {
-  const router = useRouter();
   const [activeTab, setActiveTab] = useState('services');
   const [selectedService, setSelectedService] = useState(null);
   const [subType, setSubType] = useState(null);
@@ -44,20 +42,15 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    if (activeTab === 'history') {
-      setLoading(true);
-      fetch('/api/dokumentenstatus')
-        .then((res) => res.json())
-        .then((data) => {
-          setStatusData(Array.isArray(data) ? data : []);
-          setLoading(false);
-          setActiveReport(null);
-        })
-        .catch((err) => {
-          console.error('Fehler beim Laden der Statusdaten:', err);
-          setLoading(false);
-        });
-    }
+    if (activeTab !== 'history') return;
+    setLoading(true);
+    fetch('/api/dokumentenstatus')
+      .then((r) => r.json())
+      .then((data) => {
+        setStatusData(Array.isArray(data) ? data : []);
+        setActiveReport(null);
+      })
+      .finally(() => setLoading(false));
   }, [activeTab]);
 
   const getRolleName = (type, sub) => {
@@ -69,189 +62,155 @@ export default function Dashboard() {
     return '';
   };
 
-  // --- Netto-Abgleich aus Detaildaten extrahieren ---
-  const filteredRows = activeReport
-    ? statusData.filter(
-        (r) =>
-          String(r.kunde_id) === String(activeReport.kunde_id) &&
-          String(r.kundenrolle || '') === String(activeReport.kundenrolle || '')
-      )
-    : statusData;
+  // --- Rows des aktuell geöffneten Reports (Detail) ---
+  const filteredRows = useMemo(() => {
+    if (!activeReport) return statusData;
+    return statusData.filter(
+      (r) =>
+        String(r.kunde_id) === String(activeReport.kunde_id) &&
+        String(r.kundenrolle || '') === String(activeReport.kundenrolle || '')
+    );
+  }, [statusData, activeReport]);
 
-  const nettoInfo = (() => {
+  // --- Netto-Abgleich (robuste Extraktion aus case_details, Dateinamen etc.) ---
+  const nettoInfo = useMemo(() => {
     if (!activeReport) return null;
 
-    const asNumber = (v) => {
-      if (v == null) return null;
-      if (typeof v === 'number' && isFinite(v)) return v;
-      if (typeof v === 'string') {
-        const cleaned = v.replace(/\s/g, '').replace(/\./g, '').replace(/,/g, '.');
-        const n = Number(cleaned);
-        return isFinite(n) ? n : null;
-      }
-      if (typeof v === 'object') {
-        for (const k of ['netto', 'value', 'betrag', 'amount']) {
-          if (v[k] != null) {
-            const n = asNumber(v[k]);
-            if (n != null) return n;
-          }
+    const isGehalts = (r) => {
+      const a = String(r?.dokument_name || '').toLowerCase();
+      const b = String(r?.anzeige_name || '').toLowerCase();
+      return a.includes('gehalts') || b.includes('gehalts');
+    };
+
+    const isSelbstauskunft = (r) => {
+      const a = String(r?.dokument_name || '').toLowerCase();
+      const b = String(r?.anzeige_name || '').toLowerCase();
+      return (
+        a.includes('selbstauskunft') ||
+        b.includes('selbstauskunft') ||
+        b.includes('selbst auskunft') ||
+        b.includes('selbst-auskunft')
+      );
+    };
+
+    const collectNumbers = (row) => {
+      const candidates = [
+        row.netto,
+        row.netto_betrag,
+        row.netto_monat,
+        row.extracted_netto,
+        row.angegebenes_netto,
+        row.anzeige_name,
+        row.original_name,
+      ];
+
+      // case_details als Objekt oder JSON-String
+      if (row.case_details != null) {
+        let cd = row.case_details;
+        if (typeof cd === 'string') {
+          try { cd = JSON.parse(cd); } catch {}
+        }
+        if (cd && typeof cd === 'object') {
+          [
+            'netto',
+            'betrag',
+            'amount',
+            'summary',
+            'value',
+            'angegebenes_netto',
+            'lowest_netto',
+            'min_netto',
+          ].forEach((k) => candidates.push(cd[k]));
+          candidates.push(JSON.stringify(cd));
+        } else {
+          candidates.push(cd);
         }
       }
-      return null;
+
+      const parseNums = (v) => {
+        if (v == null) return [];
+        if (typeof v === 'number' && isFinite(v)) return [v];
+        const s = typeof v === 'string' ? v : JSON.stringify(v);
+        if (!s) return [];
+        const m = s.match(/-?\d{1,3}(?:\.\d{3})*(?:,\d{2})|-?\d+(?:\.\d{2})/g);
+        if (!m) return [];
+        return m
+          .map((x) => parseFloat(x.replace(/\./g, '').replace(',', '.')))
+          .filter((n) => isFinite(n));
+      };
+
+      const out = [];
+      for (const c of candidates) out.push(...parseNums(c));
+      return out;
     };
 
     let lowest = null;
     let selfRep = null;
 
-    filteredRows.forEach((r) => {
-      const name = String(r.dokument_name || '').toLowerCase();
+    for (const r of filteredRows) {
+      if (isGehalts(r)) {
+        const nums = collectNumbers(r);
+        for (const n of nums) lowest = lowest == null ? n : Math.min(lowest, n);
+      }
+      if (isSelbstauskunft(r)) {
+        const nums = collectNumbers(r);
+        if (nums.length) selfRep = nums.sort((a, b) => b - a)[0];
+      }
       const caseTyp = String(r.case_typ || '').toLowerCase();
-
-      // niedrigstes Netto (aus Cases „netto_abgleich“ oder aus Zahl in case_details an Gehaltsnachweisen)
-      if (name.includes('gehalts')) {
-        const val =
-          caseTyp === 'netto_abgleich' ? asNumber(r.case_details) : asNumber(r.case_details);
-        if (val != null) {
-          if (lowest == null || val < lowest) lowest = val;
-        }
+      if (!selfRep && caseTyp.includes('angegebenes_netto')) {
+        const nums = collectNumbers(r);
+        if (nums.length) selfRep = nums.sort((a, b) => b - a)[0];
       }
-      // selbstauskunft netto (Case „angegebenes_netto“ oder an der Selbstauskunft-Zeile)
-      if (name.includes('selbstauskunft')) {
-        const val = asNumber(r.case_details);
-        if (val != null) selfRep = val;
-      }
-      if (caseTyp.includes('angegebenes_netto')) {
-        const val = asNumber(r.case_details);
-        if (val != null) selfRep = val;
-      }
-    });
+    }
 
     const bestanden = lowest != null && selfRep != null && lowest >= selfRep;
-    return { lowest, selfRep, bestanden };
-  })();
+    const diff = lowest != null && selfRep != null ? lowest - selfRep : null; // positiv, wenn bestanden
+    return { lowest, selfRep, diff, bestanden };
+  }, [activeReport, filteredRows]);
 
   const styles = {
     page: { minHeight: '100vh', backgroundColor: tokens.colors.bgPage },
-    header: {
-      backgroundColor: tokens.colors.bgCard,
-      borderBottom: `1px solid ${tokens.colors.border}`,
-      boxShadow: tokens.shadow,
-    },
-    headerInner: {
-      maxWidth: 1152,
-      margin: '0 auto',
-      padding: '24px 16px',
-      display: 'flex',
-      alignItems: 'center',
-      gap: 16,
-    },
+    header: { backgroundColor: tokens.colors.bgCard, borderBottom: `1px solid ${tokens.colors.border}`, boxShadow: tokens.shadow },
+    headerInner: { maxWidth: 1152, margin: '0 auto', padding: '24px 16px', display: 'flex', alignItems: 'center', gap: 16 },
     title: { fontSize: 24, fontWeight: 700, color: tokens.colors.text, margin: 0 },
     subtitle: { color: tokens.colors.textMuted, margin: 0 },
     container: { maxWidth: 1152, margin: '0 auto', padding: '24px 16px' },
 
-    tabs: {
-      display: 'flex',
-      gap: 8,
-      marginBottom: 24,
-      backgroundColor: tokens.colors.bgTabs,
-      padding: 4,
-      borderRadius: tokens.radiusSm,
-    },
+    tabs: { display: 'flex', gap: 8, marginBottom: 24, backgroundColor: tokens.colors.bgTabs, padding: 4, borderRadius: tokens.radiusSm },
     tabBtn: (active) => ({
-      flex: 1,
-      textAlign: 'center',
-      padding: '10px 12px',
-      borderRadius: tokens.radiusSm,
-      fontWeight: 600,
+      flex: 1, textAlign: 'center', padding: '10px 12px', borderRadius: tokens.radiusSm, fontWeight: 600,
       transition: 'background-color 120ms ease, color 120ms ease',
-      backgroundColor: active ? tokens.colors.bgCard : tokens.colors.tabIdle,
-      color: active ? tokens.colors.text : '#444444',
-      border: 'none',
-      cursor: 'pointer',
+      backgroundColor: active ? tokens.colors.bgCard : tokens.colors.tabIdle, color: active ? tokens.colors.text : '#444', border: 'none', cursor: 'pointer',
     }),
 
     cardGrid: { display: 'flex', flexWrap: 'wrap', gap: 24 },
     card: {
-      backgroundColor: tokens.colors.bgCard,
-      padding: 24,
-      borderRadius: tokens.radius,
-      boxShadow: tokens.shadow,
-      cursor: 'pointer',
-      flex: '1 1 320px',
-      maxWidth: 'calc(50% - 12px)',
-      transition: 'transform 120ms ease, box-shadow 120ms ease',
+      backgroundColor: tokens.colors.bgCard, padding: 24, borderRadius: tokens.radius, boxShadow: tokens.shadow, cursor: 'pointer',
+      flex: '1 1 320px', maxWidth: 'calc(50% - 12px)', transition: 'transform 120ms ease, box-shadow 120ms ease',
     },
     cardHover: { transform: 'translateY(-1px)', boxShadow: '0 6px 18px rgba(0,0,0,0.08)' },
     cardHeader: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 },
     cardTitle: { fontSize: 18, fontWeight: 600, color: tokens.colors.text, margin: 0 },
     cardText: { fontSize: 14, color: tokens.colors.textMuted, margin: '0 0 16px 0' },
     primaryBtn: {
-      backgroundColor: tokens.colors.primary,
-      color: '#ffffff',
-      fontWeight: 600,
-      padding: '10px 16px',
-      borderRadius: tokens.radiusSm,
-      width: '100%',
-      border: 'none',
-      cursor: 'pointer',
-      transition: 'background-color 120ms ease',
+      backgroundColor: tokens.colors.primary, color: '#fff', fontWeight: 600, padding: '10px 16px', borderRadius: tokens.radiusSm,
+      width: '100%', border: 'none', cursor: 'pointer', transition: 'background-color 120ms ease',
     },
 
-    panel: {
-      backgroundColor: tokens.colors.bgCard,
-      padding: 24,
-      borderRadius: tokens.radius,
-      boxShadow: tokens.shadow,
-    },
-    panelHeaderRow: {
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: 16,
-    },
+    panel: { backgroundColor: tokens.colors.bgCard, padding: 24, borderRadius: tokens.radius, boxShadow: tokens.shadow },
+    panelHeaderRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
     panelTitle: { fontSize: 18, fontWeight: 700, color: tokens.colors.text, margin: 0 },
-    linkBtn: {
-      fontSize: 14,
-      color: tokens.colors.primary,
-      background: 'transparent',
-      border: 'none',
-      cursor: 'pointer',
-      textDecoration: 'underline',
-      padding: 0,
-    },
+    linkBtn: { fontSize: 14, color: tokens.colors.primary, background: 'transparent', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 },
     statusWrap: { backgroundColor: tokens.colors.bgCard, padding: 24, borderRadius: tokens.radius },
 
-    // Netto Box
-    nettoBox: {
-      border: `1px solid ${tokens.colors.border}`,
-      borderRadius: tokens.radiusSm,
-      padding: 16,
-      background: '#f9fafb',
-      marginBottom: 16,
-    },
-    nettoGrid: {
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr 1fr',
-      gap: 12,
-      alignItems: 'stretch',
-    },
-    nettoCell: {
-      background: '#fff',
-      border: `1px solid ${tokens.colors.border}`,
-      borderRadius: tokens.radiusSm,
-      padding: 12,
-    },
+    nettoBox: { border: `1px solid ${tokens.colors.border}`, borderRadius: tokens.radiusSm, padding: 16, background: '#f9fafb', marginBottom: 16 },
+    nettoGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, alignItems: 'stretch' },
+    nettoCell: { background: '#fff', border: `1px solid ${tokens.colors.border}`, borderRadius: tokens.radiusSm, padding: 12 },
     nettoLabel: { margin: 0, color: tokens.colors.textMuted, fontSize: 12 },
     nettoValue: { margin: 0, color: tokens.colors.text, fontWeight: 700, fontSize: 18 },
     nettoBadge: (ok) => ({
-      justifySelf: 'end',
-      alignSelf: 'start',
-      padding: '4px 10px',
-      borderRadius: 999,
-      background: ok ? '#dcfce7' : '#fee2e2',
-      color: ok ? tokens.colors.green : tokens.colors.red,
-      fontWeight: 700,
-      fontSize: 12,
+      justifySelf: 'end', alignSelf: 'start', padding: '4px 10px', borderRadius: 999,
+      background: ok ? '#dcfce7' : '#fee2e2', color: ok ? tokens.colors.green : tokens.colors.red, fontWeight: 700, fontSize: 12,
     }),
   };
 
@@ -275,24 +234,8 @@ export default function Dashboard() {
       <div style={styles.container}>
         {/* Tabs */}
         <div style={styles.tabs}>
-          <button
-            onClick={() => {
-              setActiveTab('services');
-              resetSelection();
-            }}
-            style={styles.tabBtn(activeTab === 'services')}
-          >
-            Prüfungen
-          </button>
-          <button
-            onClick={() => {
-              setActiveTab('history');
-              resetSelection();
-            }}
-            style={styles.tabBtn(activeTab === 'history')}
-          >
-            Status
-          </button>
+          <button onClick={() => { setActiveTab('services'); resetSelection(); }} style={styles.tabBtn(activeTab === 'services')}>Prüfungen</button>
+          <button onClick={() => { setActiveTab('history'); resetSelection(); }} style={styles.tabBtn(activeTab === 'history')}>Status</button>
         </div>
 
         {/* Auswahlkarten */}
@@ -423,18 +366,20 @@ export default function Dashboard() {
                     <div style={styles.nettoGrid}>
                       <div style={styles.nettoCell}>
                         <p style={styles.nettoLabel}>Niedrigstes Netto (Gehaltsnachweise)</p>
-                        <p style={styles.nettoValue}>{nettoInfo.lowest != null ? nettoInfo.lowest.toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €' : '—'}</p>
+                        <p style={styles.nettoValue}>
+                          {nettoInfo.lowest != null ? nettoInfo.lowest.toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €' : '—'}
+                        </p>
                       </div>
                       <div style={styles.nettoCell}>
                         <p style={styles.nettoLabel}>Selbstauskunft (Netto)</p>
-                        <p style={styles.nettoValue}>{nettoInfo.selfRep != null ? nettoInfo.selfRep.toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €' : '—'}</p>
+                        <p style={styles.nettoValue}>
+                          {nettoInfo.selfRep != null ? nettoInfo.selfRep.toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €' : '—'}
+                        </p>
                       </div>
                       <div style={styles.nettoCell}>
                         <p style={styles.nettoLabel}>Differenz</p>
                         <p style={styles.nettoValue}>
-                          {nettoInfo.lowest != null && nettoInfo.selfRep != null
-                            ? (nettoInfo.selfRep - nettoInfo.lowest).toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €'
-                            : '—'}
+                          {nettoInfo.diff != null ? nettoInfo.diff.toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €' : '—'}
                         </p>
                       </div>
                     </div>

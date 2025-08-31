@@ -9,7 +9,14 @@ import {
   FaExclamationTriangle,
 } from 'react-icons/fa';
 
-// -------- Helpers --------
+// DSGVO-konformer Download: signierte URL (120s)
+async function signedDownload(raw) {
+  const res = await fetch(`/api/get-download-url?raw=${encodeURIComponent(raw)}`);
+  const json = await res.json();
+  if (json?.url) window.open(json.url, '_blank', 'noopener,noreferrer');
+  else alert('Download nicht möglich.');
+}
+
 const isGehaltsnachweis = (row) => {
   const a = String(row?.dokument_name || '').toLowerCase();
   const b = String(row?.anzeige_name || '').toLowerCase();
@@ -18,60 +25,27 @@ const isGehaltsnachweis = (row) => {
 const isSelbstauskunft = (row) => {
   const a = String(row?.dokument_name || '').toLowerCase();
   const b = String(row?.anzeige_name || '').toLowerCase();
-  return (
-    a.includes('selbstauskunft') ||
-    b.includes('selbstauskunft') ||
-    b.includes('selbst auskunft') ||
-    b.includes('selbst-auskunft')
-  );
+  return a.includes('selbstauskunft') || b.includes('selbstauskunft') || b.includes('selbst auskunft') || b.includes('selbst-auskunft');
 };
 
-// DSGVO-konformer Download: signierte URL per API holen (120s)
-async function signedDownload(raw) {
-  const res = await fetch(`/api/get-download-url?raw=${encodeURIComponent(raw)}`);
-  const json = await res.json();
-  if (json?.url) {
-    window.open(json.url, '_blank', 'noopener,noreferrer');
-  } else {
-    alert('Download nicht möglich.');
-  }
-}
-
-// -------- Styles --------
 const styles = {
   topControls: { display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12, alignItems: 'center' },
   chip: (active) => ({
-    padding: '6px 10px',
-    borderRadius: 999,
+    padding: '6px 10px', borderRadius: 999,
     border: `1px solid ${active ? '#2563eb' : '#e5e7eb'}`,
     color: active ? '#2563eb' : '#374151',
     background: active ? '#eff6ff' : '#fff',
-    fontSize: 12,
-    cursor: 'pointer',
+    fontSize: 12, cursor: 'pointer',
   }),
   select: {
-    padding: '8px 10px',
-    border: '1px solid #e5e7eb',
-    borderRadius: 8,
-    backgroundColor: '#fff',
-    color: '#111',
-    fontSize: 14,
-    lineHeight: '20px',
-    appearance: 'none',
-    WebkitAppearance: 'none',
-    MozAppearance: 'none',
-    outline: 'none',
-    cursor: 'pointer',
+    padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8,
+    backgroundColor: '#fff', color: '#111', fontSize: 14, lineHeight: '20px',
+    appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none', outline: 'none', cursor: 'pointer',
   },
   wrapper: { overflowX: 'auto' },
   table: {
-    minWidth: '100%',
-    borderCollapse: 'separate',
-    borderSpacing: 0,
-    backgroundColor: '#ffffff',
-    border: '1px solid #e5e7eb',
-    borderRadius: 8,
-    boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+    minWidth: '100%', borderCollapse: 'separate', borderSpacing: 0, backgroundColor: '#ffffff',
+    border: '1px solid #e5e7eb', borderRadius: 8, boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
   },
   theadTr: { backgroundColor: '#f3f4f6', textAlign: 'left' },
   th: { padding: 8, borderBottom: '1px solid #e5e7eb', fontWeight: 700, fontSize: 14, color: '#111', cursor: 'pointer', userSelect: 'none' },
@@ -88,12 +62,10 @@ const styles = {
   subThTd: { padding: 6, border: '1px solid #e5e7eb', fontSize: 14 },
 };
 
-// -------- Component --------
 export default function StatusTable({ data }) {
   const [expandedRows, setExpandedRows] = useState({});
   const [expandedGehalts, setExpandedGehalts] = useState({});
 
-  // Filter-Chips
   const [filter, setFilter] = useState({
     pflichtOffen: false,
     mindestOffen: false,
@@ -103,16 +75,14 @@ export default function StatusTable({ data }) {
   });
   const toggle = (k) => setFilter((f) => ({ ...f, [k]: !f[k] }));
 
-  // Sortierung via Header oder Dropdown
-  // key: 'kunde' | 'rolle' | 'dokument' | 'status' | 'datum'
+  // Sortierung: kunde | rolle | dokument | status | datum
   const [sort, setSort] = useState({ key: 'dokument', dir: 'asc' });
-  const onSort = (key) =>
-    setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
+  const onSort = (key) => setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
 
-  const toggleRow = (index) => setExpandedRows((p) => ({ ...p, [index]: !p[index] }));
+  const toggleRow = (idx) => setExpandedRows((p) => ({ ...p, [idx]: !p[idx] }));
   const toggleGehaltsRow = (key) => setExpandedGehalts((p) => ({ ...p, [key]: !p[key] }));
 
-  // Gehaltsnachweise gruppieren
+  // Gehalts-Gruppen
   const gehaltsGroups = useMemo(() => {
     const map = {};
     data.forEach((row) => {
@@ -139,7 +109,7 @@ export default function StatusTable({ data }) {
     return map;
   }, [data]);
 
-  // Render-Sequenz
+  // gemischte Renderliste
   const renderList = useMemo(() => {
     const seen = new Set();
     const list = [];
@@ -156,7 +126,7 @@ export default function StatusTable({ data }) {
     return list;
   }, [data, gehaltsGroups]);
 
-  // Filter anwenden
+  // Filter
   const filtered = useMemo(() => {
     return renderList.filter((item) => {
       if (item.type === 'gehalt') {
@@ -181,62 +151,74 @@ export default function StatusTable({ data }) {
     });
   }, [renderList, filter]);
 
-  // Sortierung anwenden
+  // Sortierung (stabil & mit Tie-Breakern)
   const sorted = useMemo(() => {
     const arr = [...filtered];
-    const dir = sort.dir === 'asc' ? 1 : -1;
 
-    const text = (v) => (v || '').toString().toLowerCase();
-
-    const pickName = (it) =>
+    const kunde = (it) => (it.type === 'gehalt' ? it.group?.kunde_name || '' : it.row?.kunde_name || '');
+    const rolle = (it) => (it.type === 'gehalt' ? it.group?.kundenrolle || '' : it.row?.kundenrolle || '');
+    const dokName = (it) =>
       it.type === 'gehalt'
-        ? 'gehaltsnachweise'
+        ? 'Gehaltsnachweise'
         : (it.row?.anzeige_name || it.row?.dokument_name || '');
 
-    const pickKunde = (it) =>
-      it.type === 'gehalt' ? (it.group?.kunde_name || '') : (it.row?.kunde_name || '');
-
-    const pickRolle = (it) =>
-      it.type === 'gehalt' ? (it.group?.kundenrolle || '') : (it.row?.kundenrolle || '');
-
-    const pickStatusWeight = (it) => {
+    const statusWeight = (it) => {
       const r = it.type === 'gehalt' ? null : it.row;
-      if (!r) {
-        // gruppierte Zeile: gewichte nach Mindestanzahl + Vorhanden summiert
-        const g = it.group;
-        if (!g) return 99;
-        const minSet = Number.isFinite(g.mindestanzahl);
-        const minOk = minSet ? g.vorhandenCount >= g.mindestanzahl : true;
-        if (!minOk) return 1; // Mindest nicht erfüllt
-        return 3; // ok
-      }
+      if (!r) return 99;
       if (r.erforderlich && !r.vorhanden) return 0;
       if (r.mindestanzahl != null && !(r.mindestanzahl_erfüllt || r.mindestanzahl_erfuellt)) return 1;
       if (String(r.case_status || '').toLowerCase() === 'failed') return 2;
-      return 3;
+      if (r.tiefergehende_pruefung && !r.case_status) return 4;
+      return 5;
     };
 
-    const pickDate = (it) => {
-      const r = it.type === 'gehalt' ? null : it.row;
-      const base =
-        (r?.letztes_update || r?.erkannt_am || r?.hochgeladen_am || r?.case_updated_at || 0);
-      return new Date(base || 0).getTime();
-    };
+    const dateVal = (it) => (it.type === 'gehalt' ? 0 : new Date(it.row?.erkannt_am || 0).getTime());
+    const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+    const dir = sort.dir === 'asc' ? 1 : -1;
 
     arr.sort((a, b) => {
-      if (sort.key === 'kunde') return dir * text(pickKunde(a)).localeCompare(text(pickKunde(b)));
-      if (sort.key === 'rolle') return dir * text(pickRolle(a)).localeCompare(text(pickRolle(b)));
-      if (sort.key === 'dokument') return dir * text(pickName(a)).localeCompare(text(pickName(b)));
-      if (sort.key === 'status') return dir * (pickStatusWeight(a) - pickStatusWeight(b));
-      if (sort.key === 'datum') return dir * (pickDate(a) - pickDate(b));
-      return 0;
+      let res = 0;
+      switch (sort.key) {
+        case 'kunde':
+          res = cmp(kunde(a).localeCompare(kunde(b)), 0);
+          if (res !== 0) return dir * res;
+          // Tie-Breaker
+          res = dokName(a).localeCompare(dokName(b)); if (res) return res;
+          return 0;
+
+        case 'rolle':
+          res = rolle(a).localeCompare(rolle(b)); if (res) return dir * res;
+          res = kunde(a).localeCompare(kunde(b)); if (res) return res;
+          res = dokName(a).localeCompare(dokName(b)); if (res) return res;
+          return 0;
+
+        case 'status':
+          res = statusWeight(a) - statusWeight(b); if (res) return dir * res;
+          res = kunde(a).localeCompare(kunde(b)); if (res) return res;
+          res = dokName(a).localeCompare(dokName(b)); if (res) return res;
+          return 0;
+
+        case 'datum':
+          res = dateVal(a) - dateVal(b); if (res) return dir * res;
+          res = kunde(a).localeCompare(kunde(b)); if (res) return res;
+          res = dokName(a).localeCompare(dokName(b)); if (res) return res;
+          return 0;
+
+        case 'dokument':
+        default:
+          res = dokName(a).localeCompare(dokName(b)); if (res) return dir * res;
+          res = kunde(a).localeCompare(kunde(b)); if (res) return res;
+          res = rolle(a).localeCompare(rolle(b)); if (res) return res;
+          return 0;
+      }
     });
+
     return arr;
   }, [filtered, sort]);
 
   return (
     <div>
-      {/* Filter / Sort Top-Leiste */}
+      {/* Filter / Sort */}
       <div style={styles.topControls}>
         <button style={styles.chip(filter.pflichtOffen)} onClick={() => toggle('pflichtOffen')}>Pflicht offen</button>
         <button style={styles.chip(filter.mindestOffen)} onClick={() => toggle('mindestOffen')}>Mindestanzahl offen</button>
@@ -253,12 +235,10 @@ export default function StatusTable({ data }) {
           }}
           style={styles.select}
         >
-          <option value="kunde_asc">Kunde A–Z</option>
-          <option value="kunde_desc">Kunde Z–A</option>
-          <option value="rolle_asc">Rolle A–Z</option>
-          <option value="rolle_desc">Rolle Z–A</option>
           <option value="dokument_asc">Dokument A–Z</option>
           <option value="dokument_desc">Dokument Z–A</option>
+          <option value="kunde_asc">Kunde A–Z</option>
+          <option value="rolle_asc">Rolle A–Z</option>
           <option value="status_asc">Status ↑</option>
           <option value="status_desc">Status ↓</option>
           <option value="datum_desc">Datum neu → alt</option>
@@ -284,7 +264,7 @@ export default function StatusTable({ data }) {
 
           <tbody>
             {sorted.map((item) => {
-              // ------- Gehalts-Gruppe -------
+              // ---- Gehalts-Gruppe ----
               if (item.type === 'gehalt') {
                 const g = item.group;
                 if (!g) return null;
@@ -337,13 +317,8 @@ export default function StatusTable({ data }) {
                                   </td>
                                   <td style={{ ...styles.subThTd, textAlign: 'center' }}>
                                     {doc.file_url ? (
-                                      <button
-                                        onClick={() => signedDownload(doc.file_url)}
-                                        style={styles.linkBtn}
-                                        title="Download"
-                                      >
-                                        <FaDownload />
-                                        Download
+                                      <button onClick={() => signedDownload(doc.file_url)} style={styles.linkBtn} title="Download">
+                                        <FaDownload /> Download
                                       </button>
                                     ) : <span>-</span>}
                                   </td>
@@ -358,7 +333,7 @@ export default function StatusTable({ data }) {
                 );
               }
 
-              // ------- Normale Zeilen -------
+              // ---- Normale Zeile ----
               const row = item.row;
               const index = item.index;
               const istPflicht = !!row?.erforderlich;
@@ -367,7 +342,6 @@ export default function StatusTable({ data }) {
               const hatMindest = row?.mindestanzahl != null;
               const tiefergehend = !!row?.tiefergehende_pruefung;
 
-              // Details nur für Nicht-Gehaltsnachweis und Nicht-Selbstauskunft
               const allowDetails = tiefergehend && !!row?.case_typ && !isGehaltsnachweis(row) && !isSelbstauskunft(row);
               const rowKey = `${row?.kunde_id || 'k'}-${row?.dokumenttyp_id || 'dt'}-${index}`;
 
@@ -392,9 +366,7 @@ export default function StatusTable({ data }) {
                           <span style={styles.warnWrap}><FaExclamationTriangle />{`${row?.anzahl_vorhanden || 0}/${row?.mindestanzahl}`}</span>
                       ) : <span>-</span>}
                     </td>
-                    <td style={styles.td}>
-                      {tiefergehend ? <span style={styles.blueText}>Ja</span> : <span>-</span>}
-                    </td>
+                    <td style={styles.td}>{tiefergehend ? <span style={styles.blueText}>Ja</span> : <span>-</span>}</td>
                     <td style={{ ...styles.td, ...styles.center }}>
                       {row?.file_url ? (
                         <button onClick={() => signedDownload(row.file_url)} style={styles.linkBtn} title="Download">
@@ -415,17 +387,17 @@ export default function StatusTable({ data }) {
                     <tr>
                       <td colSpan={9} style={styles.detailsCell}>
                         <div>
-                          {row?.case_typ && (
-                            <p style={{ margin: '0 0 6px 0' }}><strong>Case-Typ:</strong> {row.case_typ}</p>
-                          )}
-                          {row?.case_status && (
-                            <p style={{ margin: '0 0 6px 0' }}><strong>Status:</strong> {row.case_status}</p>
-                          )}
+                          {row?.case_typ && (<p style={{ margin: '0 0 6px 0' }}><strong>Case-Typ:</strong> {row.case_typ}</p>)}
+                          {row?.case_status && (<p style={{ margin: '0 0 6px 0' }}><strong>Status:</strong> {row.case_status}</p>)}
                           {row?.case_details && (
                             <>
                               <p style={{ margin: '0 0 4px 0' }}><strong>Details:</strong></p>
                               <pre
-                                style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace', fontSize: 12, color: '#6b7280', marginTop: 4 }}
+                                style={{
+                                  whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                                  fontSize: 12, color: '#6b7280', marginTop: 4,
+                                }}
                               >
                                 {typeof row.case_details === 'string' ? row.case_details : JSON.stringify(row.case_details, null, 2)}
                               </pre>
