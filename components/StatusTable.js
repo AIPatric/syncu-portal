@@ -38,7 +38,7 @@ const styles = {
     fontSize: 12, cursor: 'pointer',
   }),
   select: {
-    padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8,
+    padding: '8px 10px', border: '1px solid '#e5e7eb'', borderRadius: 8,
     backgroundColor: '#fff', color: '#111', fontSize: 14, lineHeight: '20px',
     appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none', outline: 'none', cursor: 'pointer',
   },
@@ -75,9 +75,10 @@ export default function StatusTable({ data }) {
   });
   const toggle = (k) => setFilter((f) => ({ ...f, [k]: !f[k] }));
 
-  // Sortierung: kunde | rolle | dokument | status | datum
+  // Sortierung
   const [sort, setSort] = useState({ key: 'dokument', dir: 'asc' });
-  const onSort = (key) => setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
+  const onSort = (key) =>
+    setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
 
   const toggleRow = (idx) => setExpandedRows((p) => ({ ...p, [idx]: !p[idx] }));
   const toggleGehaltsRow = (key) => setExpandedGehalts((p) => ({ ...p, [key]: !p[key] }));
@@ -151,64 +152,101 @@ export default function StatusTable({ data }) {
     });
   }, [renderList, filter]);
 
+  // Hilfsfunktionen für Sortierung
+  const kunde = (it) => (it.type === 'gehalt' ? it.group?.kunde_name || '' : it.row?.kunde_name || '');
+  const rolle = (it) => (it.type === 'gehalt' ? it.group?.kundenrolle || '' : it.row?.kundenrolle || '');
+  const dokName = (it) =>
+    it.type === 'gehalt' ? 'Gehaltsnachweise' : it.row?.anzeige_name || it.row?.dokument_name || '';
+
+  const statusWeight = (it) => {
+    const r = it.type === 'gehalt' ? null : it.row;
+    if (!r) return 99;
+    if (r.erforderlich && !r.vorhanden) return 0;
+    if (r.mindestanzahl != null && !(r.mindestanzahl_erfüllt || r.mindestanzahl_erfuellt)) return 1;
+    if (String(r.case_status || '').toLowerCase() === 'failed') return 2;
+    if (r.tiefergehende_pruefung && !r.case_status) return 4;
+    return 5;
+  };
+
+  const dateVal = (it) => (it.type === 'gehalt' ? 0 : new Date(it.row?.erkannt_am || 0).getTime());
+  const pflichtVal = (it) =>
+    it.type === 'gehalt'
+      ? (it.group?.items?.some((x) => !!x.erforderlich) ? 1 : 0)
+      : (!!it.row?.erforderlich ? 1 : 0);
+
+  const vorhandenVal = (it) =>
+    it.type === 'gehalt'
+      ? (it.group?.vorhandenCount > 0 ? 1 : 0)
+      : (!!it.row?.vorhanden ? 1 : 0);
+
   // Sortierung (stabil & mit Tie-Breakern)
   const sorted = useMemo(() => {
     const arr = [...filtered];
-
-    const kunde = (it) => (it.type === 'gehalt' ? it.group?.kunde_name || '' : it.row?.kunde_name || '');
-    const rolle = (it) => (it.type === 'gehalt' ? it.group?.kundenrolle || '' : it.row?.kundenrolle || '');
-    const dokName = (it) =>
-      it.type === 'gehalt'
-        ? 'Gehaltsnachweise'
-        : (it.row?.anzeige_name || it.row?.dokument_name || '');
-
-    const statusWeight = (it) => {
-      const r = it.type === 'gehalt' ? null : it.row;
-      if (!r) return 99;
-      if (r.erforderlich && !r.vorhanden) return 0;
-      if (r.mindestanzahl != null && !(r.mindestanzahl_erfüllt || r.mindestanzahl_erfuellt)) return 1;
-      if (String(r.case_status || '').toLowerCase() === 'failed') return 2;
-      if (r.tiefergehende_pruefung && !r.case_status) return 4;
-      return 5;
-    };
-
-    const dateVal = (it) => (it.type === 'gehalt' ? 0 : new Date(it.row?.erkannt_am || 0).getTime());
-    const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
     const dir = sort.dir === 'asc' ? 1 : -1;
 
     arr.sort((a, b) => {
       let res = 0;
       switch (sort.key) {
         case 'kunde':
-          res = cmp(kunde(a).localeCompare(kunde(b)), 0);
-          if (res !== 0) return dir * res;
-          // Tie-Breaker
-          res = dokName(a).localeCompare(dokName(b)); if (res) return res;
+          res = kunde(a).localeCompare(kunde(b));
+          if (res) return dir * res;
+          res = dokName(a).localeCompare(dokName(b));
+          if (res) return res;
           return 0;
 
         case 'rolle':
-          res = rolle(a).localeCompare(rolle(b)); if (res) return dir * res;
-          res = kunde(a).localeCompare(kunde(b)); if (res) return res;
-          res = dokName(a).localeCompare(dokName(b)); if (res) return res;
+          res = rolle(a).localeCompare(rolle(b));
+          if (res) return dir * res;
+          res = kunde(a).localeCompare(kunde(b));
+          if (res) return res;
+          res = dokName(a).localeCompare(dokName(b));
+          if (res) return res;
+          return 0;
+
+        case 'pflicht':
+          res = pflichtVal(a) - pflichtVal(b);
+          if (res) return dir * res;
+          res = kunde(a).localeCompare(kunde(b));
+          if (res) return res;
+          res = dokName(a).localeCompare(dokName(b));
+          if (res) return res;
+          return 0;
+
+        case 'vorhanden':
+          res = vorhandenVal(a) - vorhandenVal(b);
+          if (res) return dir * res;
+          res = kunde(a).localeCompare(kunde(b));
+          if (res) return res;
+          res = dokName(a).localeCompare(dokName(b));
+          if (res) return res;
           return 0;
 
         case 'status':
-          res = statusWeight(a) - statusWeight(b); if (res) return dir * res;
-          res = kunde(a).localeCompare(kunde(b)); if (res) return res;
-          res = dokName(a).localeCompare(dokName(b)); if (res) return res;
+          res = statusWeight(a) - statusWeight(b);
+          if (res) return dir * res;
+          res = kunde(a).localeCompare(kunde(b));
+          if (res) return res;
+          res = dokName(a).localeCompare(dokName(b));
+          if (res) return res;
           return 0;
 
         case 'datum':
-          res = dateVal(a) - dateVal(b); if (res) return dir * res;
-          res = kunde(a).localeCompare(kunde(b)); if (res) return res;
-          res = dokName(a).localeCompare(dokName(b)); if (res) return res;
+          res = dateVal(a) - dateVal(b);
+          if (res) return dir * res;
+          res = kunde(a).localeCompare(kunde(b));
+          if (res) return res;
+          res = dokName(a).localeCompare(dokName(b));
+          if (res) return res;
           return 0;
 
         case 'dokument':
         default:
-          res = dokName(a).localeCompare(dokName(b)); if (res) return dir * res;
-          res = kunde(a).localeCompare(kunde(b)); if (res) return res;
-          res = rolle(a).localeCompare(rolle(b)); if (res) return res;
+          res = dokName(a).localeCompare(dokName(b));
+          if (res) return dir * res;
+          res = kunde(a).localeCompare(kunde(b));
+          if (res) return res;
+          res = rolle(a).localeCompare(rolle(b));
+          if (res) return res;
           return 0;
       }
     });
@@ -253,8 +291,8 @@ export default function StatusTable({ data }) {
               <th style={styles.th} onClick={() => onSort('kunde')}>Kunde</th>
               <th style={styles.th} onClick={() => onSort('rolle')}>Rolle</th>
               <th style={styles.th} onClick={() => onSort('dokument')}>Dokument / Anzeigename</th>
-              <th style={styles.th} onClick={() => onSort('status')}>Pflicht</th>
-              <th style={styles.th} onClick={() => onSort('status')}>Vorhanden</th>
+              <th style={styles.th} onClick={() => onSort('pflicht')}>Pflicht</th>
+              <th style={styles.th} onClick={() => onSort('vorhanden')}>Vorhanden</th>
               <th style={styles.th}>Mindestanzahl</th>
               <th style={styles.th}>Tiefergehende Prüfung</th>
               <th style={styles.th} onClick={() => onSort('datum')}>Download</th>

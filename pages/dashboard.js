@@ -72,7 +72,7 @@ export default function Dashboard() {
     );
   }, [statusData, activeReport]);
 
-  // --- Netto-Abgleich (robuste Extraktion aus case_details, Dateinamen etc.) ---
+  // --- Netto-Abgleich (robuste Extraktion) ---
   const nettoInfo = useMemo(() => {
     if (!activeReport) return null;
 
@@ -82,14 +82,38 @@ export default function Dashboard() {
       return a.includes('gehalts') || b.includes('gehalts');
     };
 
-    const isSelbstauskunft = (r) => {
+    // erweitert: erkennt auch "Antrag"
+    const isSelbstauskunftByName = (r) => {
       const a = String(r?.dokument_name || '').toLowerCase();
       const b = String(r?.anzeige_name || '').toLowerCase();
       return (
         a.includes('selbstauskunft') ||
         b.includes('selbstauskunft') ||
         b.includes('selbst auskunft') ||
-        b.includes('selbst-auskunft')
+        b.includes('selbst-auskunft') ||
+        a.includes('antrag') ||
+        b.includes('antrag')
+      );
+    };
+
+    // erkennt Selbstauskunft über case_typ / case_details
+    const isSelbstauskunftByCase = (r) => {
+      const t = String(r?.case_typ || '').toLowerCase();
+      let d = r?.case_details;
+      try {
+        d = typeof d === 'string' ? d.toLowerCase() : JSON.stringify(d || {}).toLowerCase();
+      } catch {
+        d = '';
+      }
+      return (
+        t.includes('selbstauskunft') ||
+        t.includes('self') ||
+        t.includes('antrag') ||
+        d.includes('selbstauskunft') ||
+        d.includes('self_report') ||
+        d.includes('angegebenes_netto') ||
+        d.includes('net_income') ||
+        d.includes('monthly_net')
       );
     };
 
@@ -104,11 +128,12 @@ export default function Dashboard() {
         row.original_name,
       ];
 
-      // case_details als Objekt oder JSON-String
       if (row.case_details != null) {
         let cd = row.case_details;
         if (typeof cd === 'string') {
-          try { cd = JSON.parse(cd); } catch {}
+          try {
+            cd = JSON.parse(cd);
+          } catch {}
         }
         if (cd && typeof cd === 'object') {
           [
@@ -120,10 +145,12 @@ export default function Dashboard() {
             'angegebenes_netto',
             'lowest_netto',
             'min_netto',
+            'monthly_net',
+            'net_income',
           ].forEach((k) => candidates.push(cd[k]));
           candidates.push(JSON.stringify(cd));
         } else {
-          candidates.push(cd);
+          candidates.push(row.case_details);
         }
       }
 
@@ -139,9 +166,10 @@ export default function Dashboard() {
           .filter((n) => isFinite(n));
       };
 
-      const out = [];
-      for (const c of candidates) out.push(...parseNums(c));
-      return out;
+      const plausible = [];
+      for (const c of candidates) plausible.push(...parseNums(c));
+      // plausibler Monats-Netto-Korridor, um Datums- oder Aktennummern zu filtern
+      return plausible.filter((n) => n >= 500 && n <= 50000);
     };
 
     let lowest = null;
@@ -152,19 +180,28 @@ export default function Dashboard() {
         const nums = collectNumbers(r);
         for (const n of nums) lowest = lowest == null ? n : Math.min(lowest, n);
       }
-      if (isSelbstauskunft(r)) {
+
+      if (isSelbstauskunftByName(r) || isSelbstauskunftByCase(r)) {
         const nums = collectNumbers(r);
-        if (nums.length) selfRep = nums.sort((a, b) => b - a)[0];
+        if (nums.length) selfRep = Math.max(...nums);
       }
-      const caseTyp = String(r.case_typ || '').toLowerCase();
-      if (!selfRep && caseTyp.includes('angegebenes_netto')) {
+    }
+
+    // Fallback: falls noch keine Selbstauskunft gefunden wurde
+    if (selfRep == null) {
+      for (const r of filteredRows) {
+        if (isGehalts(r)) continue;
+        if (!isSelbstauskunftByCase(r)) continue;
         const nums = collectNumbers(r);
-        if (nums.length) selfRep = nums.sort((a, b) => b - a)[0];
+        if (nums.length) {
+          selfRep = Math.max(...nums);
+          break;
+        }
       }
     }
 
     const bestanden = lowest != null && selfRep != null && lowest >= selfRep;
-    const diff = lowest != null && selfRep != null ? lowest - selfRep : null; // positiv, wenn bestanden
+    const diff = lowest != null && selfRep != null ? lowest - selfRep : null; // positiv = bestanden
     return { lowest, selfRep, diff, bestanden };
   }, [activeReport, filteredRows]);
 
@@ -178,23 +215,43 @@ export default function Dashboard() {
 
     tabs: { display: 'flex', gap: 8, marginBottom: 24, backgroundColor: tokens.colors.bgTabs, padding: 4, borderRadius: tokens.radiusSm },
     tabBtn: (active) => ({
-      flex: 1, textAlign: 'center', padding: '10px 12px', borderRadius: tokens.radiusSm, fontWeight: 600,
+      flex: 1,
+      textAlign: 'center',
+      padding: '10px 12px',
+      borderRadius: tokens.radiusSm,
+      fontWeight: 600,
       transition: 'background-color 120ms ease, color 120ms ease',
-      backgroundColor: active ? tokens.colors.bgCard : tokens.colors.tabIdle, color: active ? tokens.colors.text : '#444', border: 'none', cursor: 'pointer',
+      backgroundColor: active ? tokens.colors.bgCard : tokens.colors.tabIdle,
+      color: active ? tokens.colors.text : '#444',
+      border: 'none',
+      cursor: 'pointer',
     }),
 
     cardGrid: { display: 'flex', flexWrap: 'wrap', gap: 24 },
     card: {
-      backgroundColor: tokens.colors.bgCard, padding: 24, borderRadius: tokens.radius, boxShadow: tokens.shadow, cursor: 'pointer',
-      flex: '1 1 320px', maxWidth: 'calc(50% - 12px)', transition: 'transform 120ms ease, box-shadow 120ms ease',
+      backgroundColor: tokens.colors.bgCard,
+      padding: 24,
+      borderRadius: tokens.radius,
+      boxShadow: tokens.shadow,
+      cursor: 'pointer',
+      flex: '1 1 320px',
+      maxWidth: 'calc(50% - 12px)',
+      transition: 'transform 120ms ease, box-shadow 120ms ease',
     },
     cardHover: { transform: 'translateY(-1px)', boxShadow: '0 6px 18px rgba(0,0,0,0.08)' },
     cardHeader: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 },
     cardTitle: { fontSize: 18, fontWeight: 600, color: tokens.colors.text, margin: 0 },
     cardText: { fontSize: 14, color: tokens.colors.textMuted, margin: '0 0 16px 0' },
     primaryBtn: {
-      backgroundColor: tokens.colors.primary, color: '#fff', fontWeight: 600, padding: '10px 16px', borderRadius: tokens.radiusSm,
-      width: '100%', border: 'none', cursor: 'pointer', transition: 'background-color 120ms ease',
+      backgroundColor: tokens.colors.primary,
+      color: '#fff',
+      fontWeight: 600,
+      padding: '10px 16px',
+      borderRadius: tokens.radiusSm,
+      width: '100%',
+      border: 'none',
+      cursor: 'pointer',
+      transition: 'background-color 120ms ease',
     },
 
     panel: { backgroundColor: tokens.colors.bgCard, padding: 24, borderRadius: tokens.radius, boxShadow: tokens.shadow },
@@ -209,8 +266,14 @@ export default function Dashboard() {
     nettoLabel: { margin: 0, color: tokens.colors.textMuted, fontSize: 12 },
     nettoValue: { margin: 0, color: tokens.colors.text, fontWeight: 700, fontSize: 18 },
     nettoBadge: (ok) => ({
-      justifySelf: 'end', alignSelf: 'start', padding: '4px 10px', borderRadius: 999,
-      background: ok ? '#dcfce7' : '#fee2e2', color: ok ? tokens.colors.green : tokens.colors.red, fontWeight: 700, fontSize: 12,
+      justifySelf: 'end',
+      alignSelf: 'start',
+      padding: '4px 10px',
+      borderRadius: 999,
+      background: ok ? '#dcfce7' : '#fee2e2',
+      color: ok ? tokens.colors.green : tokens.colors.red,
+      fontWeight: 700,
+      fontSize: 12,
     }),
   };
 
